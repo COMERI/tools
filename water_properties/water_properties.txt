@@ -1,0 +1,28 @@
+Property values
+                Cool          Warm
+Temperature   289.150000     296.150000 K
+Density       997.278901     995.638451 kg/m^3
+Viscosity     0.001122       0.000945 kg/(m s)
+Specific heat 4152.565775    4144.887178 J/(kg K)
+Enthalpy      1197518.987323 1226558.531615 J/kg
+Conductivity  0.593006       0.604390 W/(m K)
+Reynolds      105771.211319  125425.871885
+Prandtl       7.856942       6.478243
+
+Warm / Cool ratios
+Density ratio      = 0.998355
+Viscosity ratio    = 0.841909
+Specific heat ratio= 0.998151
+Enthalpy ratio     = 1.024250
+Conductivity ratio = 1.019196
+Reynolds ratio     = 1.185822
+Prandtl ratio      = 0.824525
+
+Percentage changes (Warm relative to Cool)
+Density change       = -0.164493 %
+Viscosity change     = -15.809056 %
+Specific heat change = -0.184912 %
+Enthalpy change      = 2.424976 %
+Conductivity change  = 1.919633 %
+Reynolds change      = 18.582240 %
+Prandtl change       = -17.547520 %

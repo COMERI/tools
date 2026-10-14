@@ -1,0 +1,743 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{bm}
+
+\title{Seawater Density Sensitivity to Temperature\
+Using the TEOS-10 Gibbs SeaWater Oceanographic Toolbox}
+
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+This study examines the sensitivity of seawater density to a
+$1,^\circ\mathrm{C}$ temperature perturbation using the
+Thermodynamic Equation of Seawater 2010 (TEOS-10). The calculation
+uses the Gibbs SeaWater (GSW) Oceanographic Toolbox directly from its
+C source files, compiled and linked with a C++ application.
+
+The input observations consist of in-situ temperature, Practical
+Salinity, and depth. These observations are converted to sea pressure,
+Absolute Salinity, and Conservative Temperature using TEOS-10
+algorithms. Seawater density is subsequently calculated for the
+original state and for a perturbed state in which temperature is
+increased by $1,^\circ\mathrm{C}$.
+
+The resulting density perturbation is calculated as the difference
+between the perturbed and original densities. For the profiles examined
+here, the temperature perturbation produces a decrease in seawater
+density throughout the water column, with the magnitude of the response
+varying as a function of depth and the thermodynamic state of the
+seawater.
+
+\end{abstract}
+
+\section{Objective}
+
+The objective of this calculation is to quantify the local
+thermodynamic sensitivity of seawater density to temperature.
+
+For each observation, the initial seawater state is represented by
+
+\begin{equation}
+\left(S_P,,t,,z\right),
+\end{equation}
+
+where
+
+\begin{align}
+S_P &= \text{Practical Salinity},\
+t &= \text{in-situ temperature},\
+z &= \text{vertical position}.
+\end{align}
+
+Depth is represented as a positive quantity, while TEOS-10 uses
+height above the sea surface. Therefore,
+
+\begin{equation}
+z=-d,
+\end{equation}
+
+where $d$ is the measured depth below the sea surface.
+
+The temperature perturbation is defined as
+
+\begin{equation}
+\Delta t = 1,^\circ\mathrm{C}.
+\end{equation}
+
+The perturbed temperature is consequently
+
+\begin{equation}
+t' = t+\Delta t.
+\end{equation}
+
+For this experiment,
+
+\begin{equation}
+\boxed{
+t'=t+1,^\circ\mathrm{C}
+}
+\end{equation}
+
+while salinity and pressure are held at their observed values.
+
+The density perturbation is then defined as
+
+\begin{equation}
+\boxed{
+\Delta\rho=\rho'-\rho
+}
+\end{equation}
+
+where $\rho$ is the density of the original seawater state and
+$\rho'$ is the density after the temperature perturbation.
+
+\section{TEOS-10 Thermodynamic Framework}
+
+The Thermodynamic Equation of Seawater 2010 (TEOS-10) describes the
+thermodynamic properties of seawater using Absolute Salinity,
+Conservative Temperature, and pressure.
+
+The principal thermodynamic state variables used in this calculation
+are therefore
+
+\begin{equation}
+\left(S_A,,CT,,p\right),
+\end{equation}
+
+where
+
+\begin{align}
+S_A &= \text{Absolute Salinity},\
+CT &= \text{Conservative Temperature},\
+p &= \text{sea pressure}.
+\end{align}
+
+Seawater density is represented as
+
+\begin{equation}
+\rho=\rho(S_A,CT,p).
+\end{equation}
+
+Equivalently, density may be expressed through specific volume $v$:
+
+\begin{equation}
+\boxed{
+\rho=\frac{1}{v}
+}
+\end{equation}
+
+with
+
+\begin{equation}
+v=v(S_A,CT,p).
+\end{equation}
+
+Thus,
+
+\begin{equation}
+\boxed{
+\rho=
+\frac{1}
+{v(S_A,CT,p)}
+}
+\end{equation}
+
+provides the fundamental thermodynamic relationship used by the
+density calculation.
+
+\section{Computational Sequence}
+
+The complete calculation can be summarized as
+
+\begin{equation}
+\boxed{
+(S_P,t,d,\phi,\lambda)
+\longrightarrow
+(p,S_A,CT)
+\longrightarrow
+\rho
+}
+\end{equation}
+
+where $\phi$ and $\lambda$ denote latitude and longitude.
+
+The perturbed calculation follows
+
+\begin{equation}
+\boxed{
+(S_P,t+\Delta t,d,\phi,\lambda)
+\longrightarrow
+(p,S_A,CT')
+\longrightarrow
+\rho'
+}
+\end{equation}
+
+with
+
+\begin{equation}
+\Delta t=1,^\circ\mathrm{C}.
+\end{equation}
+
+The final quantity of interest is
+
+\begin{equation}
+\boxed{
+\Delta\rho
+\rho(S_A,CT',p)
+\rho(S_A,CT,p)
+}
+\end{equation}
+
+where
+
+\begin{equation}
+CT'=CT(S_A,t+\Delta t,p).
+\end{equation}
+
+\section{Pressure From Depth}
+
+The GSW function \texttt{gsw-p-from-z} is used to convert vertical
+position into sea pressure.
+
+The input depth is converted to TEOS-10 height according to
+
+\begin{equation}
+z=-d.
+\end{equation}
+
+The pressure is then evaluated as
+
+\begin{equation}
+p=
+p(z,\phi,H_{\mathrm{dyn}}),
+\end{equation}
+
+where
+
+\begin{align}
+z &= \text{height relative to the sea surface},\
+\phi &= \text{latitude},\
+H_{\mathrm{dyn}} &= \text{dynamic height contribution}.
+\end{align}
+
+For the present calculation, the dynamic-height contribution is taken
+according to the assumptions used by the implementation.
+
+Pressure is reported in decibars:
+
+\begin{equation}
+p\quad [\mathrm{dbar}].
+\end{equation}
+
+Pressure is not assumed to be exactly proportional to depth. The
+conversion depends upon gravitational acceleration and therefore
+includes a latitude dependence.
+
+\section{Practical Salinity and Absolute Salinity}
+
+The observations provide Practical Salinity, $S_P$. TEOS-10 uses
+Absolute Salinity, $S_A$, as its thermodynamic salinity variable.
+
+The conversion is represented by
+
+\begin{equation}
+\boxed{
+S_A =
+S_A(S_P,p,\phi,\lambda)
+}
+\end{equation}
+
+and is implemented using the GSW function
+
+gsw-SA-from-SP
+.
+
+Absolute Salinity is expressed in
+
+\begin{equation}
+[\mathrm{g,kg^{-1}}].
+\end{equation}
+
+The distinction between $S_P$ and $S_A$ is important because the
+TEOS-10 density calculation is based on Absolute Salinity rather than
+Practical Salinity.
+
+\section{Conservative Temperature}
+
+The measured temperature is the in-situ temperature $t$.
+
+TEOS-10 converts in-situ temperature to Conservative Temperature
+according to
+
+\begin{equation}
+\boxed{
+CT=CT(S_A,t,p)
+}
+\end{equation}
+
+using the GSW function
+
+gsw-CT-from-t
+.
+
+For the perturbed state,
+
+\begin{equation}
+t'=t+\Delta t,
+\end{equation}
+
+and therefore
+
+\begin{equation}
+\boxed{
+CT'=CT(S_A,t+\Delta t,p)
+}
+\end{equation}
+
+with
+
+\begin{equation}
+\Delta t=1,^\circ\mathrm{C}.
+\end{equation}
+
+An important feature of this calculation is that the perturbation is
+applied to the original in-situ temperature before the TEOS-10
+conversion to Conservative Temperature. Thus, the calculation does
+not simply assume
+
+\begin{equation}
+CT'=CT+1,^\circ\mathrm{C}.
+\end{equation}
+
+Instead,
+
+\begin{equation}
+CT'
+CT(S_A,t+1,^\circ\mathrm{C},p).
+\end{equation}
+
+\section{Density Calculation}
+
+Once Absolute Salinity, Conservative Temperature, and pressure have
+been determined, seawater density is calculated from
+
+\begin{equation}
+\boxed{
+\rho=\rho(S_A,CT,p)
+}
+\end{equation}
+
+and the perturbed density is
+
+\begin{equation}
+\boxed{
+\rho'=\rho(S_A,CT',p).
+}
+\end{equation}
+
+The density response is consequently
+
+\begin{equation}
+\boxed{
+\Delta\rho
+\rho(S_A,CT',p)
+\rho(S_A,CT,p)
+}
+\end{equation}
+
+with units
+
+\begin{equation}
+[\Delta\rho]
+\mathrm{kg,m^{-3}}.
+\end{equation}
+\section{Local Temperature Sensitivity}
+
+For a sufficiently small temperature perturbation, density may be
+approximated using a first-order Taylor expansion:
+
+\begin{equation}
+\rho(T+\Delta T)
+\approx
+\rho(T)
++
+\left(
+\frac{\partial\rho}{\partial T}
+\right)_{S_A,p}
+\Delta T.
+\end{equation}
+
+Therefore,
+
+\begin{equation}
+\boxed{
+\Delta\rho
+\approx
+\left(
+\frac{\partial\rho}{\partial T}
+\right)_{S_A,p}
+\Delta T
+}
+\end{equation}
+
+where the derivative is evaluated at constant Absolute Salinity and
+pressure.
+
+The thermal expansion coefficient $\alpha$ is defined by
+
+\begin{equation}
+\boxed{
+\alpha
+-\frac{1}{\rho}
+\left(
+\frac{\partial\rho}{\partial T}
+\right)_{S_A,p}
+}
+\end{equation}
+
+and therefore
+
+\begin{equation}
+\left(
+\frac{\partial\rho}{\partial T}
+\right)_{S_A,p}
+-\rho\alpha.
+\end{equation}
+
+Substitution gives
+
+\begin{equation}
+\boxed{
+\Delta\rho
+\approx
+-\rho\alpha\Delta T
+}
+\end{equation}
+
+and, for the present experiment,
+
+\begin{equation}
+\boxed{
+\Delta\rho
+\approx
+-\rho\alpha
+}
+\end{equation}
+
+because
+
+\begin{equation}
+\Delta T=1,^\circ\mathrm{C}.
+\end{equation}
+
+The actual calculation does not rely on this linear approximation.
+Instead, the complete TEOS-10 state is evaluated before and after the
+finite temperature perturbation.
+
+\section{Numerical Results}
+
+The generated CSV file contains the following variables:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Variable & Description \\
+\midrule
+\texttt{time} & Observation time \\
+\texttt{depth\_m} & Depth below the sea surface \\
+\texttt{temperature\_C} & Original in-situ temperature \\
+\texttt{perturbed\_temperature\_C} & Temperature plus $1^\circ\mathrm{C}$ \\
+\texttt{SP\_practical} & Practical Salinity \\
+\texttt{SA\_absolute\_gkg} & Absolute Salinity \\
+\texttt{pressure\_dbar} & Sea pressure \\
+\texttt{CT\_C} & Original Conservative Temperature \\
+\texttt{perturbed\_CT\_C} & Perturbed Conservative Temperature \\
+\texttt{density\_kg\_m3} & Original density \\
+\texttt{perturbed\_density\_kg\_m3} & Perturbed density \\
+\texttt{density\_difference\_kg\_m3} & $\rho'-\rho$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Representative values from the generated profile are shown in
+Table~\ref{tab:profile}.
+
+\begin{table}[ht]
+\centering
+\caption{Representative TEOS-10 results from the generated profile.}
+\label{tab:profile}
+\begin{tabular}{rrrrr}
+\toprule
+Depth & $t$ & $S_A$ & $\rho$ & $\Delta\rho$ \\
+(\si{m}) & ($^\circ\mathrm{C}$) & (\si{g\,kg^{-1}})
+& (\si{kg,m^{-3}}) & (\si{kg,m^{-3}}) \\
+\midrule
+10 & 17.976 & 33.630 & 1024.1565 & -0.2484 \\
+20 & 17.770 & 33.635 & 1024.2551 & -0.2468 \\
+61 & 12.389 & 33.181 & 1025.2615 & -0.1968 \\
+145 & 8.992 & 33.861 & 1026.7693 & -0.1657 \\
+302 & 7.154 & 34.185 & 1028.0231 & -0.1504 \\
+499 & 5.796 & 34.354 & 1029.2534 & -0.1406 \\
+754 & 4.769 & 34.541 & 1030.7134 & -0.1358 \\
+1001 & 3.974 & 34.634 & 1032.0298 & -0.1332 \\
+2213 & 1.955 & 34.796 & 1037.9917 & -0.1416 \\
+3873 & 1.509 & 34.863 & 1045.6019 & -0.1767 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+For example, at a depth of approximately \SI{10}{m}, the calculated
+density is
+
+\begin{equation}
+\rho
+1024.15649622\ \mathrm{kg,m^{-3}}.
+\end{equation}
+
+After increasing the temperature by $1,^\circ\mathrm{C}$,
+
+\begin{equation}
+\rho'
+1023.90806198\ \mathrm{kg,m^{-3}}.
+\end{equation}
+
+The resulting density difference is
+
+\begin{align}
+\Delta\rho
+&=
+\rho'-\rho\
+&=
+1023.90806198
+1024.15649622\
+&=
+-0.24843424\ \mathrm{kg,m^{-3}}.
+\end{align}
+
+Thus,
+
+\begin{equation}
+\boxed{
+\Delta\rho
+-0.24843424\ \mathrm{kg,m^{-3}}
+}
+\end{equation}
+
+for this particular observation.
+
+\section{Depth Dependence}
+
+The magnitude of the density response changes with depth.
+
+Near the surface, the profile produces density changes of approximately
+
+\begin{equation}
+\Delta\rho
+\approx
+-0.25\ \mathrm{kg,m^{-3}}
+\end{equation}
+
+for a $1,^\circ\mathrm{C}$ temperature increase.
+
+Near \SI{1000}{m},
+
+\begin{equation}
+\Delta\rho
+\approx
+-0.13\ \mathrm{kg,m^{-3}}.
+\end{equation}
+
+At approximately \SI{3873}{m},
+
+\begin{equation}
+\Delta\rho
+\approx
+-0.177\ \mathrm{kg,m^{-3}}.
+\end{equation}
+
+This variation demonstrates that the temperature-density relationship
+is not represented adequately by a single constant coefficient over the
+entire water column.
+
+The thermodynamic state of the seawater, including pressure,
+temperature, and salinity, changes substantially with depth.
+
+\section{Geographic Dependence}
+
+Latitude is required by the TEOS-10 pressure calculation and may also
+affect the conversion between Practical and Absolute Salinity.
+
+The pressure calculation can therefore be represented schematically as
+
+\begin{equation}
+p=p(z,\phi,H_{\mathrm{dyn}}).
+\end{equation}
+
+The Absolute Salinity calculation depends upon geographic position:
+
+\begin{equation}
+S_A
+S_A(S_P,p,\phi,\lambda).
+\end{equation}
+
+Consequently, latitude and longitude are part of the thermodynamic
+calculation even though they are not themselves thermodynamic state
+variables.
+
+The current CSV output does not contain latitude or longitude fields.
+Therefore, the CSV alone cannot be used to establish the geographic
+location of the profile or its distance from the United States coast.
+
+For complete reproducibility, the output should include
+
+\begin{equation}
+\phi=\text{latitude}
+\end{equation}
+
+and
+
+\begin{equation}
+\lambda=\text{longitude}.
+\end{equation}
+
+These quantities should preferably be recorded in the CSV alongside
+each profile or in associated metadata.
+
+\section{Software Implementation}
+
+The calculation is implemented as a C++ program linked directly
+against the required GSW C source files.
+
+The principal source files are
+
+\begin{itemize}
+\item \texttt{cce1\_teos10\_density.cpp}
+\item \texttt{gsw\_oceanographic\_toolbox.c}
+\item \texttt{gsw\_saar.c}
+\end{itemize}
+
+along with the associated TEOS-10 header and data files.
+
+The C source files are compiled into object files and linked directly
+with the C++ application.
+
+A representative compilation sequence is
+
+\begin{verbatim}
+gcc -c -O2 gsw_oceanographic_toolbox.c
+gcc -c -O2 gsw_saar.c
+
+g++ -O2 cce1_teos10_density.cpp
+gsw_oceanographic_toolbox.o
+gsw_saar.o
+-o cce1_teos10_density
+\end{verbatim}
+
+The resulting executable produces
+
+\begin{verbatim}
+cce1_teos10_density.csv
+\end{verbatim}
+
+containing the original and perturbed thermodynamic states.
+
+\section{Interpretation}
+
+The results demonstrate that increasing seawater temperature by
+$1,^\circ\mathrm{C}$ decreases seawater density for the states
+represented by the profile.
+
+The response is not constant with depth because seawater density is a
+function of multiple thermodynamic variables:
+
+\begin{equation}
+\rho=\rho(S_A,CT,p).
+\end{equation}
+
+The experiment isolates the temperature component by holding the
+observed salinity and pressure fixed while modifying temperature.
+
+Thus, the experiment should be interpreted as a controlled
+thermodynamic sensitivity calculation rather than as a complete model
+of future ocean warming.
+
+In particular, it does not model simultaneous changes in salinity,
+mixing, circulation, evaporation, precipitation, air-sea heat flux,
+or water-mass formation.
+
+\section{Limitations}
+
+The principal limitation is that the experiment applies a prescribed
+temperature perturbation while holding other measured quantities
+fixed.
+
+The calculation therefore evaluates
+
+\begin{equation}
+\rho(S_A,CT+\Delta CT,p)
+\rho(S_A,CT,p)
+\end{equation}
+
+under the prescribed perturbation rather than simulating the full
+physical evolution of the ocean.
+
+A further limitation is that the current CSV file does not contain
+latitude and longitude. These values should be retained as metadata
+for future analyses because they affect the pressure and Absolute
+Salinity calculations.
+
+\section{References}
+
+\begin{enumerate}
+
+\item International Oceanographic Commission, Scientific Committee on
+Oceanic Research, and International Association for the Physical
+Sciences of the Oceans.
+\textit{The International Thermodynamic Equation of Seawater---2010:
+Calculation and Use of Thermodynamic Properties}.
+TEOS-10 Manual, UNESCO, 2010.
+
+\item McDougall, T. J., Jackett, D. R., Wright, D. G., and Feistel, R.
+``Accurate and Computationally Efficient Algorithms for Potential
+Temperature and Density of Seawater.''
+\textit{Journal of Atmospheric and Oceanic Technology},
+Vol. 20, 2003, pp. 730--741.
+
+\item Roquet, F., Madec, G., McDougall, T. J., and Barker, P. M.
+``Accurate Polynomial Expressions for the Density and Specific Volume
+of Seawater Using the TEOS-10 Standard.''
+\textit{Ocean Modelling}, Vol. 90, 2015, pp. 29--43.
+
+\item Saunders, P. M.
+``Practical Conversion of Pressure to Depth.''
+\textit{Journal of Physical Oceanography}, Vol. 11, 1981.
+
+\item TEOS-10.
+\textit{Gibbs SeaWater (GSW) Oceanographic Toolbox}.
+Available at:
+\url{https://www.teos-10.org/pubs/gsw/html/gsw_contents.html}
+
+\item TEOS-10.
+\textit{TEOS-10 Manual}.
+Available at:
+\url{https://www.teos-10.org/pubs/TEOS-10_Manual.pdf}
+
+\end{enumerate}
+
+\end{document}
