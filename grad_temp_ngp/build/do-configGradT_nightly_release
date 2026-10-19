@@ -1,0 +1,15 @@
+trilinos_install_dir=/home/spdomino/gitHubWork/scratch_build/install/gcc14.3.0/Trilinos_nightly_release
+mpi_base_dir=/home/spdomino/gitHubWork/scratch_build/install/gcc14.3.0/openmpi-4.1.2
+
+EXTRA_ARGS=$@
+
+# Cleanup old cache before we configure
+# Note: This does not remove files produced by make. Use "make clean" for this.
+find . -name "CMakeFiles" -exec rm -rf {} \;
+rm -f CMakeCache.txt
+
+cmake \
+  -DTrilinos_DIR:PATH=$trilinos_install_dir/lib/cmake/Trilinos \
+  -DMPI_BASE_DIR:PATH=$mpi_base_dir \
+$EXTRA_ARGS \
+../

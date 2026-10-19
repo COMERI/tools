@@ -1,0 +1,449 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\geometry{margin=1in}
+
+\title{Design of a Kokkos-Based CVFEM Nodal Temperature Gradient Algorithm}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Overview}
+
+This document describes the design of a stand-alone
+control-volume finite-element method (CVFEM) algorithm for
+computing the nodal temperature gradient in a Kokkos-based
+STK mesh application.
+
+The implementation is intentionally independent of the existing
+MareNalu algorithm hierarchy.  The design separates three
+responsibilities:
+
+\begin{enumerate}
+\item the physics algorithm, which manages mesh parts and
+orchestrates the calculation;
+\item the CVFEM element implementation, which provides
+element-specific operations; and
+\item the Kokkos execution model, which maps mesh buckets to
+Kokkos teams and elements to team threads.
+\end{enumerate}
+
+The initial implementation supports the Tet4 SCV element.
+Hex8 SCV support will be added using the same interface.
+
+\section{Algorithm Object}
+
+A single
+\texttt{ComputeNodalGradTemperatureAlg}
+object represents one nodal-temperature-gradient algorithm.
+
+The object contains references to the mesh and the fields required
+by the calculation:
+
+\begin{itemize}
+\item coordinates;
+\item temperature; and
+\item nodal temperature gradient.
+\end{itemize}
+
+The algorithm also contains a single vector,
+
+$$
+\texttt{partVec\_},
+$$
+
+containing all mesh parts to which the algorithm applies.
+
+Thus, multiple element parts do not require multiple algorithm
+objects.  When the algorithm is registered for another part, that
+part is appended to the existing \texttt{partVec\_}.
+
+\section{Element-Type Dispatch}
+
+The algorithm supports multiple element topologies while retaining
+a single part vector.
+
+The topology is therefore selected explicitly in
+\texttt{execute()}.
+
+For example, the locally owned element selector is first constructed
+from all parts:
+
+\begin{verbatim}
+s_locally_owned_union =
+locally_owned_part()
+& selectUnion(partVec_);
+\end{verbatim}
+
+The selector is then restricted to a particular topology:
+
+\begin{verbatim}
+s_tet4 =
+s_locally_owned_union
+& get_topology_root_part(TETRAHEDRON_4);
+\end{verbatim}
+
+The Tet4 implementation is subsequently invoked through
+
+\begin{verbatim}
+execute_element<Tet4SCVElement>(s_tet4);
+\end{verbatim}
+
+The same structure will be used for Hex8:
+
+\begin{verbatim}
+execute_element<Hex8SCVElement>(s_hex8);
+\end{verbatim}
+
+Topology dispatch is deliberately visible in the main algorithm
+rather than being hidden inside the templated execution routine.
+
+\section{Nodal Output Initialization}
+
+The nodal gradient field is an output of the algorithm.
+
+Before the element calculations begin, the field is initialized to
+zero.
+
+The initialization selector is
+
+\begin{verbatim}
+s_all_nodes =
+selectUnion(partVec_)
+& selectField(gradTemperature_);
+\end{verbatim}
+
+The locally-owned restriction is deliberately not included in this
+selector.  A locally owned element can contribute to a shared node,
+so the nodal output must be initialized on all applicable nodes.
+
+The output field is then made available to the device before the
+device calculation.
+
+\section{Read-Only and Read-Write Field Access}
+
+Field access follows the STK NGP read/write convention.
+
+The coordinates and temperature fields are dependencies of the
+algorithm and are not modified:
+
+\begin{verbatim}
+auto coordinatesData =
+coordinates_.data<
+stk::mesh::ReadOnly,
+stk::ngp::DeviceSpace>();
+
+auto temperatureData =
+temperature_.data<
+stk::mesh::ReadOnly,
+stk::ngp::DeviceSpace>();
+\end{verbatim}
+
+The nodal temperature-gradient field is populated by the algorithm
+and is therefore accessed as read-write:
+
+\begin{verbatim}
+auto gradTemperatureData =
+gradTemperature_.data<
+stk::mesh::ReadWrite,
+stk::ngp::DeviceSpace>();
+\end{verbatim}
+
+The distinction between read-only and read-write fields establishes
+the access contract of the algorithm.
+
+The algorithm is responsible for synchronization of the output
+field that it creates and populates.  Synchronization of read-only
+input fields is outside the responsibility of this algorithm.
+
+\section{Bucket-Based Kokkos Execution}
+
+The execution model follows the STK NGP bucket-access pattern.
+
+The algorithm first obtains the bucket IDs associated with the
+selected element topology:
+
+\begin{verbatim}
+stk::NgpVector<unsigned> bucketIds =
+ngpMesh.get_bucket_ids(
+stk::topology::ELEM_RANK,
+selector);
+\end{verbatim}
+
+A single Kokkos \texttt{TeamPolicy} launch is then used for all
+selected buckets.
+
+The fundamental mapping is
+
+$$
+\boxed{\text{one Kokkos team} = \text{one mesh bucket}}
+$$
+
+rather than
+
+$$
+\text{one Kokkos team} = \text{one element}.
+$$
+
+Within each bucket, the elements are distributed among the team
+threads using
+
+\begin{verbatim}
+Kokkos::TeamThreadRange
+\end{verbatim}
+
+This produces a nested execution structure:
+
+$$
+\text{TeamPolicy}
+\longrightarrow
+\text{bucket}
+\longrightarrow
+\text{TeamThreadRange}
+\longrightarrow
+\text{element}.
+$$
+
+This avoids a host-side loop over buckets followed by a separate
+device kernel launch for every bucket.
+
+\section{CVFEM Element Interface}
+
+Element-specific CVFEM operations are contained in dedicated
+element types.
+
+The SCV and SCS element types are separate abstractions.  An SCV
+element provides SCV operations, while an SCS element will provide
+SCS operations.
+
+For the current Tet4 SCV implementation, the element provides:
+
+\begin{itemize}
+\item element coordinates;
+\item shape-function derivatives, \texttt{dndx};
+\item SCV volumes; and
+\item the mapping from SCV integration point to its associated
+element node.
+\end{itemize}
+
+The element interface is represented by
+
+\begin{verbatim}
+Tet4SCVElement
+\end{verbatim}
+
+and the corresponding Hex8 implementation will be
+
+\begin{verbatim}
+Hex8SCVElement.
+\end{verbatim}
+
+\section{Element Scratch Storage}
+
+Scratch storage is associated with the element type, but the
+algorithm allocates only the portions required by the operations
+that it performs.
+
+The element therefore exposes independent scratch-size functions:
+
+\begin{verbatim}
+coordinates_scratch_size()
+dndx_scratch_size()
+scv_volume_scratch_size()
+\end{verbatim}
+
+There is intentionally no single aggregate
+\texttt{scratch\_size()} function.
+
+For the current nodal temperature-gradient calculation, all three
+storage requirements are needed:
+
+$$
+S_{\mathrm{total}}
+=
+S_{\mathrm{coordinates}}
++
+S_{\mathrm{dndx}}
++
+S_{\mathrm{scv}}.
+$$
+
+A different algorithm that only requires coordinates and SCV volume
+can allocate
+
+$$
+S_{\mathrm{coordinates}}
++
+S_{\mathrm{scv}},
+$$
+
+without allocating storage for \texttt{dndx}.
+
+This allows the element type to describe all of its available data
+while allowing each algorithm to determine its actual scratch
+requirements.
+
+\section{Element Calculation}
+
+For each element, the calculation proceeds as follows.
+
+\begin{enumerate}
+\item Obtain the connected element nodes.
+\item Gather nodal coordinates from the read-only coordinates
+field.
+\item Gather nodal temperature from the read-only temperature
+field.
+\item Compute the element shape-function derivatives.
+\item Compute the SCV volumes.
+\item Evaluate the temperature gradient at the SCV integration
+points.
+\item Weight each contribution by its corresponding SCV volume.
+\item Accumulate the resulting contribution into the nodal
+gradient field.
+\end{enumerate}
+
+The element operations themselves are supplied by the element type:
+
+\begin{verbatim}
+Element::compute_dndx(...)
+Element::compute_scv_volume(...)
+Element::ip_node(...)
+\end{verbatim}
+
+Consequently, the algorithm does not contain Tet4-specific or
+Hex8-specific geometric calculations.
+
+\section{Concurrent Nodal Accumulation}
+
+Multiple elements can contribute to the same nodal gradient.
+Because elements are processed concurrently on the device, the
+element contribution is accumulated using atomic operations:
+
+\begin{verbatim}
+Kokkos::atomic_add(...)
+\end{verbatim}
+
+The element first forms its local contribution and then performs
+the atomic nodal accumulation.
+
+This keeps the atomic operation outside the integration-point
+calculation and limits the number of atomic updates.
+
+\section{MPI Assembly}
+
+The device calculation produces the local contribution to the
+nodal gradient.
+
+After the device calculation is complete, the output field is
+synchronized to the host and STK's parallel reduction is used to
+combine contributions to shared nodes:
+
+\begin{verbatim}
+stk::mesh::parallel_sum(
+bulk_,
+{&gradTemperature_});
+\end{verbatim}
+
+The overall operation is therefore
+
+$$
+\boxed{
+\text{initialize}
+\rightarrow
+\text{device element calculation}
+\rightarrow
+\text{host synchronization}
+\rightarrow
+\text{MPI sum}
+}
+$$
+
+\section{Overall Execution Structure}
+
+The complete algorithm has the following conceptual structure:
+
+\begin{verbatim}
+execute()
+|
++-- construct locally-owned element selector
+|
++-- construct nodal output selector
+|
++-- zero gradTemperature
+|
++-- synchronize gradTemperature to device
+|
++-- select Tet4 elements
+|     |
+|     +-- execute_element<Tet4SCVElement>()
+|            |
+|            +-- obtain bucket IDs
+|            +-- one Kokkos team per bucket
+|            +-- TeamThreadRange over elements
+|            +-- element CVFEM operations
+|            +-- atomic nodal accumulation
+|
++-- select Hex8 elements
+|     |
+|     +-- execute_element<Hex8SCVElement>()
+|            |
+|            +-- same execution structure
+|
++-- synchronize gradTemperature to host
+|
++-- MPI parallel_sum
+\end{verbatim}
+
+\section{Design Principles}
+
+The implementation follows these principles:
+
+\begin{enumerate}
+\item One algorithm object can operate on multiple mesh parts.
+\item A single \texttt{partVec\_} is used for all supported
+element types.
+\item Topology dispatch is explicit in \texttt{execute()}.
+\item One Kokkos team represents one mesh bucket.
+\item Elements within a bucket are processed with
+\texttt{TeamThreadRange}.
+\item Element operations are separated from algorithm orchestration.
+\item SCV and SCS element types remain distinct.
+\item Scratch requirements are exposed independently for each
+element operation.
+\item Read-only and read-write field access is explicitly declared.
+\item The algorithm owns synchronization of the output field that
+it creates and populates.
+\item Read-only input-field synchronization is not owned by this
+algorithm.
+\item MPI assembly is performed after the device calculation.
+\end{enumerate}
+
+\section{Initial Implementation Scope}
+
+The initial implementation is intentionally limited to Tet4 SCV
+operations:
+
+$$
+\text{Tet4 SCV}
+\quad\rightarrow\quad
+\left\{
+\texttt{dndx},
+\texttt{scv\_volume}
+\right\}.
+$$
+
+Hex8 SCV support will subsequently implement the same interface.
+
+SCS operations are outside the scope of the current nodal
+temperature-gradient calculation and will be introduced through a
+separate SCS element type.
+
+\end{document}
