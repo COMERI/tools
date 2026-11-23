@@ -19,7 +19,8 @@ public:
     stk::mesh::Part* part,
     stk::mesh::Field<double>& coordinates,
     stk::mesh::Field<double>& temperature,
-    stk::mesh::Field<double>& gradTemperature);
+    stk::mesh::Field<double>& gradTemperature,
+    stk::mesh::Field<double>& dualNodalVolume);
 
   ~ComputeNodalGradTemperatureAlg() = default;
 
@@ -35,9 +36,18 @@ private:
 
   stk::mesh::BulkData& bulk_;
 
+  // Field data is accessed and modified in the execution space used by this
+  // algorithm (host execution space for CPU builds, device execution space for
+  // GPU builds). The corresponding memory space is HostSpace or DeviceSpace,
+  // respectively. Synchronization between host and device is intentionally
+  // managed by the caller. Callers must synchronize before accessing the fields
+  // from a different execution space, including host-side output or subsequent
+  // host-only algorithms.
+
   stk::mesh::Field<double>& coordinates_;
   stk::mesh::Field<double>& temperature_;
   stk::mesh::Field<double>& gradTemperature_;
+  stk::mesh::Field<double>& dualNodalVolume_;
 };
 
 #endif

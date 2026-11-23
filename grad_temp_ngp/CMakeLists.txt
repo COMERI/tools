@@ -21,9 +21,9 @@ message(STATUS "Trilinos_VERSION = ${Trilinos_VERSION}")
 #
 # Source files
 #
-set(SOURCES
+file(GLOB SOURCES CONFIGURE_DEPENDS
     main.cpp
-    src/ComputeNodalGradTemperatureAlg.cpp
+    src/*.cpp
 )
 
 #
