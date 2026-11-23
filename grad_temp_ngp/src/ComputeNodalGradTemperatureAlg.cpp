@@ -4,23 +4,20 @@
 
 #include <stk_mesh/base/MetaData.hpp>
 #include <stk_mesh/base/Selector.hpp>
-#include <stk_mesh/base/FieldParallel.hpp>
-#include <stk_mesh/base/FieldBLAS.hpp>
 
 #include <stk_mesh/base/NgpMesh.hpp>
+#include <stk_mesh/base/NgpParallelComm.hpp>
 #include <stk_mesh/base/NgpTypes.hpp>
+#include <stk_mesh/base/NgpFieldBLAS.hpp>
 
 namespace
 {
 
 using ExecSpace = stk::ngp::ExecSpace;
+using DeviceSpace = stk::ngp::DeviceSpace;
 
-using TeamPolicy =
-  stk::ngp::TeamPolicy<ExecSpace>;
-
-using TeamHandle =
-  typename TeamPolicy::member_type;
-
+using TeamPolicy = stk::ngp::TeamPolicy<ExecSpace>;
+using TeamHandle = typename TeamPolicy::member_type;
 
 template <typename Element>
 KOKKOS_FUNCTION
@@ -32,12 +29,7 @@ void compute_element_gradient(
   auto& gradTemperatureData,
   const unsigned bucketId)
 {
-  auto gradValues =
-    gradTemperatureData.bucket_values(bucketId);
-
-  if (!gradValues.is_field_defined()) {
-    return;
-  }
+  auto gradValues = gradTemperatureData.bucket_values(bucketId);
 
   const stk::mesh::EntityIdx numElements =
     gradValues.num_entities();
@@ -46,9 +38,7 @@ void compute_element_gradient(
     Kokkos::TeamThreadRange(team, 0_entity, numElements),
     [&](const stk::mesh::EntityIdx elem)
     {
-      //
       // Allocate scratch for this element.
-      //
       const std::size_t coordinatesBytes =
         Element::coordinates_scratch_size();
 
@@ -65,17 +55,13 @@ void compute_element_gradient(
             dndxBytes +
             scvVolumeBytes));
 
-
-      //
       // Map scratch memory to the element data structures.
-      //
       typename Element::CoordinatesView coordinates(
         ptr,
         Element::nodesPerElement,
         Element::spatialDim);
 
       ptr += coordinatesBytes / sizeof(double);
-
 
       typename Element::DndxView dndx(
         ptr,
@@ -85,15 +71,11 @@ void compute_element_gradient(
 
       ptr += dndxBytes / sizeof(double);
 
-
       typename Element::ScvVolumeView scvVolume(
         ptr,
         Element::numScvIp);
 
-
-      //
       // Get the element's connected nodes.
-      //
       stk::mesh::NgpMesh::ConnectedNodes nodes =
         ngpMesh
           .get_bucket(
@@ -102,110 +84,70 @@ void compute_element_gradient(
           .get_nodes(
             static_cast<int>(elem));
 
-
-      //
       // Gather element data.
-      //
       double temperature[
         Element::nodesPerElement];
 
-      for (int node = 0;
-           node < Element::nodesPerElement;
-           ++node)
-      {
+      for (int node = 0; node < Element::nodesPerElement; ++node) {
+        
         auto coord =
           coordinatesData.entity_values(nodes[node]);
 
-        coordinates(node, 0) = coord(0_comp);
-        coordinates(node, 1) = coord(1_comp);
-        coordinates(node, 2) = coord(2_comp);
-
+        for (unsigned dim = 0; dim < Element::spatialDim; ++dim) {
+          coordinates(node, dim) =
+            coord(stk::mesh::ComponentIdx(dim));
+        }
+        
         auto temp =
           temperatureData.entity_values(nodes[node]);
 
         temperature[node] = temp(0_comp);
       }
 
-
-      //
       // Compute element geometry.
-      //
-      Element::compute_dndx(
-        coordinates,
-        dndx);
+      Element::compute_dndx(coordinates,
+                            dndx);
 
-      Element::compute_scv_volume(
-        coordinates,
-        scvVolume);
+      Element::compute_scv_volume(coordinates,
+                                  scvVolume);
 
-
-      //
       // Accumulate the element contribution at each
       // SCV integration point.
-      //
       double localGradient[
         Element::nodesPerElement]
         [Element::spatialDim];
 
-      for (int node = 0;
-           node < Element::nodesPerElement;
-           ++node)
-      {
-        for (int dim = 0;
-             dim < Element::spatialDim;
-             ++dim)
-        {
+      for (int node = 0; node < Element::nodesPerElement; ++node) {
+        for (int dim = 0; dim < Element::spatialDim; ++dim) {
           localGradient[node][dim] = 0.0;
         }
       }
 
+      for (int ip = 0; ip < Element::numScvIp; ++ip) {
+        const int node = Element::ip_node(ip);
 
-      for (int ip = 0;
-           ip < Element::numScvIp;
-           ++ip)
-      {
-        const int node =
-          Element::ip_node(ip);
-
-        for (int dim = 0;
-             dim < Element::spatialDim;
-             ++dim)
-        {
+        for (int dim = 0; dim < Element::spatialDim; ++dim) {
           double gradient = 0.0;
-
-          for (int j = 0;
-               j < Element::nodesPerElement;
-               ++j)
-          {
+          
+          for (int j = 0; j < Element::nodesPerElement; ++j) {
             gradient +=
               temperature[j] *
               dndx(ip, j, dim);
           }
-
+          
           localGradient[node][dim] +=
             gradient * scvVolume(ip);
         }
       }
 
-
-      //
       // Accumulate the element contribution into the
       // nodal gradient field.
-      //
-      for (int node = 0;
-           node < Element::nodesPerElement;
-           ++node)
-      {
-        auto grad =
-          gradTemperatureData.entity_values(nodes[node]);
+      for (int node = 0; node < Element::nodesPerElement; ++node) {
+        auto grad = gradTemperatureData.entity_values(nodes[node]);
 
-        for (int dim = 0;
-             dim < Element::spatialDim;
-             ++dim)
-        {
-          Kokkos::atomic_add(
-            &grad(stk::mesh::ComponentIdx(dim)),
-            localGradient[node][dim]);
+        for (int dim = 0; dim < Element::spatialDim; ++dim) {
+          Kokkos::atomic_add(&grad(stk::mesh::ComponentIdx(dim)),
+                             localGradient[node][dim]);
         }
       }
     });
@@ -220,11 +162,13 @@ ComputeNodalGradTemperatureAlg(
   stk::mesh::Part* part,
   stk::mesh::Field<double>& coordinates,
   stk::mesh::Field<double>& temperature,
-  stk::mesh::Field<double>& gradTemperature)
+  stk::mesh::Field<double>& gradTemperature,
+  stk::mesh::Field<double>& dualNodalVolume)
   : bulk_(bulk),
     coordinates_(coordinates),
     temperature_(temperature),
-    gradTemperature_(gradTemperature)
+    gradTemperature_(gradTemperature),
+    dualNodalVolume_(dualNodalVolume)
 {
   partVec_.push_back(part);
 }
@@ -233,69 +177,70 @@ ComputeNodalGradTemperatureAlg(
 void
 ComputeNodalGradTemperatureAlg::execute()
 {
-  stk::mesh::MetaData& meta_data =
-    bulk_.mesh_meta_data();
+  stk::mesh::NgpMesh& ngpMesh =
+    stk::mesh::get_updated_ngp_mesh(bulk_);
 
-
-  //
+  stk::mesh::MetaData& metaData = bulk_.mesh_meta_data();
+  
+  const unsigned nDim = metaData.spatial_dimension();
+  
   // Select locally owned elements belonging to all parts
   // associated with this algorithm.
-  //
   stk::mesh::Selector s_locally_owned_union =
-    meta_data.locally_owned_part()
+    metaData.locally_owned_part()
     & stk::mesh::selectUnion(partVec_);
 
-
-  //
   // Select all nodes on which gradTemperature is defined.
-  //
   // Do not restrict this selector to locally owned nodes.
-  //
   stk::mesh::Selector s_all_nodes =
     stk::mesh::selectUnion(partVec_)
     & stk::mesh::selectField(gradTemperature_);
 
-
-  //
-  // Initialize the output field.
-  //
-
-  stk::mesh::field_fill(
+  // Initialize the output field on execution space
+  stk::mesh::field_fill<DeviceSpace>(
     0.0,
     gradTemperature_,
     s_all_nodes);
-
-  //
-  // gradTemperature_ is owned by this algorithm, so make
-  // the initialized field available on the device.
-  //
-  gradTemperature_.sync_to_device();
-
-
-  //
+  
   // Tet4 elements (add more topos if needed)
-  //
   stk::mesh::Selector s_tet4 =
     s_locally_owned_union
-    & meta_data.get_topology_root_part(
+    & metaData.get_topology_root_part(
         stk::topology::TETRAHEDRON_4);
 
-  execute_element<cvfem::Tet4SCVElement>(
-    s_tet4);
+  execute_element<cvfem::Tet4SCVElement>(s_tet4);
 
+  // parallel sum in execution space
+  stk::mesh::ngp_parallel_data_exchange_sym_pack_unpack<
+    double,
+    stk::mesh::Operation::SUM,
+    DeviceSpace>(
+        bulk_,
+        {&gradTemperature_},
+        false,  // includeGhosts
+        true);  // deterministic
 
-  //
-  // Make the device-computed output current on the host.
-  //
-  gradTemperature_.sync_to_host();
+  // normalize; extracting first
+  auto& ngpGradTemperature =
+    stk::mesh::get_updated_ngp_field<double>(gradTemperature_);
+  
+  auto& ngpDualNodalVolume =
+    stk::mesh::get_updated_ngp_field<double>(dualNodalVolume_);
 
-
-  //
-  // Sum contributions to shared nodes across MPI ranks.
-  //
-  stk::mesh::parallel_sum(
-    bulk_,
-    {&gradTemperature_});
+  stk::mesh::for_each_entity_run( ngpMesh,
+                                  stk::topology::NODE_RANK,
+                                  s_all_nodes,
+                                  KOKKOS_LAMBDA(const stk::mesh::FastMeshIndex& node)
+ {
+   auto grad = ngpGradTemperature(node);
+   const double volume = ngpDualNodalVolume(node, 0);
+   
+   for (int dim = 0; dim < nDim; ++dim) {
+     grad[dim] /= volume;
+   }
+ });
+  
+  // leaving the field, gradTemperature_ up-to-date in execution space
 }
 
 
@@ -304,33 +249,26 @@ void
 ComputeNodalGradTemperatureAlg::execute_element(
   const stk::mesh::Selector& selector)
 {
-  //
   // Update the NGP mesh.
-  //
   stk::mesh::NgpMesh& ngpMesh =
     stk::mesh::get_updated_ngp_mesh(bulk_);
 
-  //
   // Input fields are read-only dependencies.
-  //
   auto coordinatesData =
     coordinates_.data<
       stk::mesh::ReadOnly,
-      stk::ngp::DeviceSpace>();
+      DeviceSpace>();
 
   auto temperatureData =
     temperature_.data<
       stk::mesh::ReadOnly,
-      stk::ngp::DeviceSpace>();
+      DeviceSpace>();
 
-
-  //
   // Output field is read-write.
-  //
   auto gradTemperatureData =
     gradTemperature_.data<
       stk::mesh::ReadWrite,
-      stk::ngp::DeviceSpace>();
+      DeviceSpace>();
 
 
   //
@@ -344,19 +282,13 @@ ComputeNodalGradTemperatureAlg::execute_element(
   const unsigned numBuckets =
     bucketIds.size();
 
-
-  //
   // Allocate only the scratch required by this algorithm.
-  //
   const std::size_t scratchBytes =
     Element::coordinates_scratch_size()
     + Element::dndx_scratch_size()
     + Element::scv_volume_scratch_size();
 
-
-  //
   // One team corresponds to one bucket.
-  //
   Kokkos::parallel_for(
     TeamPolicy(
       numBuckets,
@@ -366,8 +298,7 @@ ComputeNodalGradTemperatureAlg::execute_element(
         Kokkos::PerThread(scratchBytes)),
 
     KOKKOS_LAMBDA(
-      const TeamHandle& team)
-    {
+      const TeamHandle& team) {
       const unsigned bucketId =
         bucketIds.get<ExecSpace>(
           team.league_rank());
@@ -382,10 +313,7 @@ ComputeNodalGradTemperatureAlg::execute_element(
     });
 }
 
-
-//
 // Explicit template instantiations.
-//
 template void
 ComputeNodalGradTemperatureAlg::execute_element<
   cvfem::Tet4SCVElement>(
