@@ -29,40 +29,40 @@ void compute_element_scvol(
   auto& dualNodalVolumeData,
   const unsigned bucketId)
 {
-  auto dualNodalVolumeValues = dualNodalVolumeData.bucket_values(bucketId);
-
+  // Number of elements in this element-rank bucket.
   const stk::mesh::EntityIdx numElements =
-    dualNodalVolumeValues.num_entities();
+    ngpMesh.get_bucket(stk::topology::ELEM_RANK, bucketId).size();
+
+  // Allocate per-thread scratch once; it is reused for every element this
+  // thread processes.
+  const std::size_t coordinatesBytes =
+    Element::coordinates_scratch_size();
+
+  const std::size_t scvVolumeBytes =
+    Element::scv_volume_scratch_size();
+
+  double* ptr =
+    static_cast<double*>(
+      team.thread_scratch(0).get_shmem(
+        coordinatesBytes +
+        scvVolumeBytes));
+
+  // Map scratch memory to the element data structures.
+  typename Element::CoordinatesView coordinates(
+    ptr,
+    Element::nodesPerElement,
+    Element::spatialDim);
+
+  ptr += coordinatesBytes / sizeof(double);
+
+  typename Element::ScvVolumeView scvVolume(
+    ptr,
+    Element::numScvIp);
 
   Kokkos::parallel_for(
     Kokkos::TeamThreadRange(team, 0_entity, numElements),
     [&](const stk::mesh::EntityIdx elem)
     {
-      // Allocate scratch for this element.
-      const std::size_t coordinatesBytes =
-        Element::coordinates_scratch_size();
-
-      const std::size_t scvVolumeBytes =
-        Element::scv_volume_scratch_size();
-
-      double* ptr =
-        static_cast<double*>(
-          team.thread_scratch(0).get_shmem(
-            coordinatesBytes +
-            scvVolumeBytes));
-
-      // Map scratch memory to the element data structures.
-      typename Element::CoordinatesView coordinates(
-        ptr,
-        Element::nodesPerElement,
-        Element::spatialDim);
-
-      ptr += coordinatesBytes / sizeof(double);
-
-      typename Element::ScvVolumeView scvVolume(
-        ptr,
-        Element::numScvIp);
-
       // Get the element's connected nodes.
       stk::mesh::NgpMesh::ConnectedNodes nodes =
         ngpMesh
@@ -90,7 +90,7 @@ void compute_element_scvol(
 
       // Accumulate the element contribution at each
       // SCV integration point.
-      double localDualNodalVolume[Element::nodesPerElement];
+      double localDualNodalVolume[Element::nodesPerElement] = {};
 
       for (int ip = 0; ip < Element::numScvIp; ++ip) {
         const int node = Element::ip_node(ip);
@@ -142,7 +142,7 @@ ComputeNodalVolumeAlg::execute()
     metaData.locally_owned_part()
     & stk::mesh::selectUnion(partVec_);
 
-  // Select all nodes on which gradTemperature is defined.
+  // Select all nodes on which dualNodal is defined.
   // Do not restrict this selector to locally owned nodes.
   stk::mesh::Selector s_all_nodes =
     stk::mesh::selectUnion(partVec_)

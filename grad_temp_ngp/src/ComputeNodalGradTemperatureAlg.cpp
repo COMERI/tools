@@ -30,52 +30,52 @@ void compute_element_gradient(
   auto& gradTemperatureData,
   const unsigned bucketId)
 {
-  auto gradValues = gradTemperatureData.bucket_values(bucketId);
-
+  // Number of elements in this element-rank bucket.
   const stk::mesh::EntityIdx numElements =
-    gradValues.num_entities();
+    ngpMesh.get_bucket(stk::topology::ELEM_RANK, bucketId).size();
+
+  // Allocate per-thread scratch once; it is reused for every element this
+  // thread processes.
+  const std::size_t coordinatesBytes =
+    Element::coordinates_scratch_size();
+
+  const std::size_t dndxBytes =
+    Element::dndx_scratch_size();
+
+  const std::size_t scvVolumeBytes =
+    Element::scv_volume_scratch_size();
+  
+  double* ptr =
+    static_cast<double*>(
+      team.thread_scratch(0).get_shmem(
+        coordinatesBytes +
+        dndxBytes +
+        scvVolumeBytes));
+
+  // Map scratch memory to the element data structures.
+  typename Element::CoordinatesView coordinates(
+    ptr,
+    Element::nodesPerElement,
+    Element::spatialDim);
+
+  ptr += coordinatesBytes / sizeof(double);
+
+  typename Element::DndxView dndx(
+    ptr,
+    Element::numScvIp,
+    Element::nodesPerElement,
+    Element::spatialDim);
+  
+  ptr += dndxBytes / sizeof(double);
+
+  typename Element::ScvVolumeView scvVolume(
+    ptr,
+    Element::numScvIp);
 
   Kokkos::parallel_for(
     Kokkos::TeamThreadRange(team, 0_entity, numElements),
     [&](const stk::mesh::EntityIdx elem)
-    {
-      // Allocate scratch for this element.
-      const std::size_t coordinatesBytes =
-        Element::coordinates_scratch_size();
-
-      const std::size_t dndxBytes =
-        Element::dndx_scratch_size();
-
-      const std::size_t scvVolumeBytes =
-        Element::scv_volume_scratch_size();
-
-      double* ptr =
-        static_cast<double*>(
-          team.thread_scratch(0).get_shmem(
-            coordinatesBytes +
-            dndxBytes +
-            scvVolumeBytes));
-
-      // Map scratch memory to the element data structures.
-      typename Element::CoordinatesView coordinates(
-        ptr,
-        Element::nodesPerElement,
-        Element::spatialDim);
-
-      ptr += coordinatesBytes / sizeof(double);
-
-      typename Element::DndxView dndx(
-        ptr,
-        Element::numScvIp,
-        Element::nodesPerElement,
-        Element::spatialDim);
-
-      ptr += dndxBytes / sizeof(double);
-
-      typename Element::ScvVolumeView scvVolume(
-        ptr,
-        Element::numScvIp);
-
+    {    
       // Get the element's connected nodes.
       stk::mesh::NgpMesh::ConnectedNodes nodes =
         ngpMesh
@@ -114,30 +114,20 @@ void compute_element_gradient(
 
       // Accumulate the element contribution at each
       // SCV integration point.
-      double localGradient[
-        Element::nodesPerElement]
-        [Element::spatialDim];
-
-      for (int node = 0; node < Element::nodesPerElement; ++node) {
-        for (int dim = 0; dim < Element::spatialDim; ++dim) {
-          localGradient[node][dim] = 0.0;
-        }
-      }
+      double localGradient[Element::nodesPerElement][Element::spatialDim] = {};
 
       for (int ip = 0; ip < Element::numScvIp; ++ip) {
         const int node = Element::ip_node(ip);
 
         for (int dim = 0; dim < Element::spatialDim; ++dim) {
           double gradient = 0.0;
-          
           for (int j = 0; j < Element::nodesPerElement; ++j) {
             gradient +=
               temperature[j] *
               dndx(ip, j, dim);
           }
           
-          localGradient[node][dim] +=
-            gradient * scvVolume(ip);
+          localGradient[node][dim] += gradient * scvVolume(ip);
         }
       }
 
