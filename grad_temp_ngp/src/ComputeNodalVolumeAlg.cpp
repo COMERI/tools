@@ -4,6 +4,7 @@
 
 #include <stk_mesh/base/MetaData.hpp>
 #include <stk_mesh/base/Selector.hpp>
+#include <stk_mesh/base/FieldParallel.hpp>
 
 #include <stk_mesh/base/NgpMesh.hpp>
 #include <stk_mesh/base/NgpParallelComm.hpp>
@@ -160,18 +161,12 @@ ComputeNodalVolumeAlg::execute()
         stk::topology::TETRAHEDRON_4);
 
   execute_element<cvfem::Tet4SCVElement>(s_tet4);
-
-  // parallel sum in execution space
-  stk::mesh::ngp_parallel_data_exchange_sym_pack_unpack<
-    double,
-    stk::mesh::Operation::SUM,
-    DeviceSpace>(
-        bulk_,
-        {&dualNodalVolume_},
-        false,  // includeGhosts
-        true);  // deterministic
-
-  // leaving the field, dualNodalVolume_ up-to-date in execution space
+  
+  // Sum contributions across shared nodes using device execution space.
+  stk::mesh::parallel_sum<DeviceSpace>(bulk_,
+                                       {&dualNodalVolume_});
+  
+  // Computed field current in device memory; synchronize to host only for I/O.
 }
 
 

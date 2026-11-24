@@ -4,6 +4,7 @@
 
 #include <stk_mesh/base/MetaData.hpp>
 #include <stk_mesh/base/Selector.hpp>
+#include <stk_mesh/base/FieldParallel.hpp>
 
 #include <stk_mesh/base/NgpMesh.hpp>
 #include <stk_mesh/base/NgpParallelComm.hpp>
@@ -173,7 +174,6 @@ ComputeNodalGradTemperatureAlg(
   partVec_.push_back(part);
 }
 
-
 void
 ComputeNodalGradTemperatureAlg::execute()
 {
@@ -210,37 +210,35 @@ ComputeNodalGradTemperatureAlg::execute()
 
   execute_element<cvfem::Tet4SCVElement>(s_tet4);
 
-  // parallel sum in execution space
-  stk::mesh::ngp_parallel_data_exchange_sym_pack_unpack<
-    double,
-    stk::mesh::Operation::SUM,
-    DeviceSpace>(
-        bulk_,
-        {&gradTemperature_},
-        false,  // includeGhosts
-        true);  // deterministic
+  // Sum contributions across shared nodes using device execution space.
+  stk::mesh::parallel_sum<DeviceSpace>(bulk_,
+                                       {&gradTemperature_});
 
-  // normalize; extracting first
-  auto& ngpGradTemperature =
-    stk::mesh::get_updated_ngp_field<double>(gradTemperature_);
-  
-  auto& ngpDualNodalVolume =
-    stk::mesh::get_updated_ngp_field<double>(dualNodalVolume_);
+  // Access fields on the device for nodal normalization.
+  auto gradTemperatureData =
+    gradTemperature_.data<stk::mesh::ReadWrite,
+                          DeviceSpace>();
 
-  stk::mesh::for_each_entity_run( ngpMesh,
-                                  stk::topology::NODE_RANK,
-                                  s_all_nodes,
-                                  KOKKOS_LAMBDA(const stk::mesh::FastMeshIndex& node)
- {
-   auto grad = ngpGradTemperature(node);
-   const double volume = ngpDualNodalVolume(node, 0);
-   
-   for (int dim = 0; dim < nDim; ++dim) {
-     grad[dim] /= volume;
-   }
- });
+  auto dualNodalVolumeData =
+    dualNodalVolume_.data<stk::mesh::ReadOnly,
+                          DeviceSpace>();
+
+  stk::mesh::for_each_entity_run(ngpMesh,
+                                 stk::topology::NODE_RANK,
+                                 s_all_nodes,
+  KOKKOS_LAMBDA(const stk::mesh::FastMeshIndex& node)
+  {
+    auto grad = gradTemperatureData.entity_values(node);
+    auto volume = dualNodalVolumeData.entity_values(node);
+    
+    const double nodalVolume = volume(0_comp);
+    
+    for (int dim = 0; dim < nDim; ++dim) {
+      grad(stk::mesh::ComponentIdx(dim)) /= nodalVolume;
+    }
+  });
   
-  // leaving the field, gradTemperature_ up-to-date in execution space
+  // Computed field current in device memory; synchronize to host only for I/O.
 }
 
 
@@ -270,10 +268,7 @@ ComputeNodalGradTemperatureAlg::execute_element(
       stk::mesh::ReadWrite,
       DeviceSpace>();
 
-
-  //
   // Get the element bucket IDs selected by this topology.
-  //
   stk::NgpVector<unsigned> bucketIds =
     ngpMesh.get_bucket_ids(
       stk::topology::ELEM_RANK,
