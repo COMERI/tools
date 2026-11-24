@@ -39,7 +39,6 @@ main(int argc, char** argv)
     const int myRank =
       stk::parallel_machine_rank(comm);
 
-
     // Mesh filename.
     if (argc != 2) {
 
@@ -131,6 +130,9 @@ main(int argc, char** argv)
         auto& ngpTemperature =
           stk::mesh::get_updated_ngp_field<double>(temperature);
 
+        // Synchronize mesh coordinates to the execution space.
+        ngpCoordinates.sync_to_device();
+ 
         // Define the linear temperature field:
         //   T(x,y,z) = T0 + ax*x + ay*y + az*z
         //
@@ -161,6 +163,9 @@ main(int argc, char** argv)
           
           temp[0] = sum;
         });
+
+        // Mark device-side temperature updates for subsequent synchronization.
+        ngpTemperature.modify_on_device();
         
         //=============================================
         // Algorithms operates on Tet4 elements.
@@ -197,10 +202,10 @@ main(int argc, char** argv)
         //=============================================
         // Sync all modified fields to prepare for output
         //=============================================
-
+        temperature.sync_to_host();
         dualNodalVolume.sync_to_host();
         gradTemperature.sync_to_host();
-	
+        
 	// Write the results to an Exodus database.
 	const std::string outputFile =
 	  "cvfem_dnv_gradt_test.exo";
@@ -217,8 +222,7 @@ main(int argc, char** argv)
                      temperature);
 	
 	io.add_field(outputFileIndex,
-		     gradTemperature);
-	
+		     gradTemperature);	
 	
 	// Write the mesh and the initial field definitions.
 	io.write_output_mesh(outputFileIndex);
@@ -248,20 +252,23 @@ main(int argc, char** argv)
         const stk::mesh::BucketVector& checkBuckets =
           bulk.get_buckets(stk::topology::NODE_RANK,
                            checkSelector);
+
+        auto gradTemperatureData =
+          gradTemperature.data<stk::mesh::ReadOnly,
+                               stk::ngp::HostSpace>();
         
         for (stk::mesh::Bucket* bucket : checkBuckets) {
           
           for (size_t i = 0; i < bucket->size(); ++i) {
             
             stk::mesh::Entity node = (*bucket)[i];
-            
-            const double* grad =
-              stk::mesh::field_data(gradTemperature, node);
+
+            auto grad = gradTemperatureData.entity_values(node);
             
             double error = 0.0;
-            
             for (int dim = 0; dim < nDim; ++dim) {
-              error = std::max(error, std::abs(grad[dim] - ax[dim]));
+              error = std::max(error,
+                               std::abs(grad(stk::mesh::ComponentIdx(dim)) - ax[dim]));
             }
             
             maxError = std::max(maxError, error);
