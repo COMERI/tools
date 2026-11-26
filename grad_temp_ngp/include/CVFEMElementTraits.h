@@ -314,6 +314,140 @@ struct Tet4SCVElement
   }
 };
 
+struct Tet4SCSElement
+{
+  static constexpr int nodesPerElement = 4;
+  static constexpr int numScsIp        = 6;
+  static constexpr int spatialDim      = 3;
+
+  using ExecSpace =
+    stk::ngp::ExecSpace;
+
+  using ScratchSpace =
+    typename ExecSpace::scratch_memory_space;
+
+  // Element coordinates: [node][dimension]
+  using CoordinatesView =
+    Kokkos::View<
+      double**,
+      Kokkos::LayoutRight,
+      ScratchSpace,
+      Kokkos::MemoryTraits<
+        Kokkos::Unmanaged>>;
+
+  // Shape-function derivatives: [SCS integration point][node][dimension]
+  using DndxView =
+    Kokkos::View<
+      double***,
+      Kokkos::LayoutRight,
+      ScratchSpace,
+      Kokkos::MemoryTraits<
+        Kokkos::Unmanaged>>;
+
+  // SCS area vectors: [SCS integration point][dimension]
+  using AreaVecView =
+    Kokkos::View<
+      double**,
+      Kokkos::LayoutRight,
+      ScratchSpace,
+      Kokkos::MemoryTraits<
+        Kokkos::Unmanaged>>;
+
+  // Scratch requirements are exposed independently.
+  // An algorithm only allocates what it actually uses.
+  static constexpr std::size_t
+  coordinates_scratch_size()
+  {
+    return sizeof(double)
+      * nodesPerElement
+      * spatialDim;
+  }
+
+  static constexpr std::size_t
+  dndx_scratch_size()
+  {
+    return sizeof(double)
+      * numScsIp
+      * nodesPerElement
+      * spatialDim;
+  }
+
+  static constexpr std::size_t
+  area_vec_scratch_size()
+  {
+    return sizeof(double)
+      * numScsIp
+      * spatialDim;
+  }
+
+  // SCS element operations.
+  KOKKOS_FUNCTION
+  static void determinant(
+    const CoordinatesView& coordinates,
+    const AreaVecView& areav)
+  {
+    // Tet4 implementation TBD.
+  }
+
+  KOKKOS_FUNCTION
+  static void dndx(
+    const CoordinatesView& coordinates,
+    const DndxView& dndx)
+  {
+    // Tet4 implementation TBD.
+  }
+
+  // lrscv: the left and right element node of each SCS surface, i.e.
+  // lrscv(ip, 0) is the left node and lrscv(ip, 1) the right node of the
+  // element edge that SCS integration point ip lies on.
+  //
+  //   ip 0 : nodes 0 -> 1      ip 3 : nodes 0 -> 3
+  //   ip 1 : nodes 1 -> 2      ip 4 : nodes 1 -> 3
+  //   ip 2 : nodes 0 -> 2      ip 5 : nodes 2 -> 3
+  //
+  // The table is a local array, so this function is callable from device code.
+  KOKKOS_FUNCTION
+  static int lrscv(
+    const int ip,
+    const int scs)
+  {
+    const int lrscvMap[numScsIp][2] = {
+      {0, 1},
+      {1, 2},
+      {0, 2},
+      {0, 3},
+      {1, 3},
+      {2, 3}};
+
+    return lrscvMap[ip][scs];
+  }
+
+  // Standard SCS integration-point locations, in the reference tet
+  // (node 0 at the origin, node i on axis i): ip_location(ip, dim) is the
+  // dim-th reference coordinate of integration point ip. Each point is the
+  // area centroid of its SCS surface.
+  //
+  // Same local-array pattern as lrscv() so it is device-callable.
+  KOKKOS_FUNCTION
+  static double ip_location(
+    const int ip,
+    const int dim)
+  {
+    const double thirteen36ths = 13.0 / 36.0;
+    const double five36ths     =  5.0 / 36.0;
+
+    const double intgLoc[numScsIp][spatialDim] = {
+      {thirteen36ths, five36ths,     five36ths},      // surf 1    0->1
+      {thirteen36ths, thirteen36ths, five36ths},      // surf 2    1->2
+      {five36ths,     thirteen36ths, five36ths},      // surf 3    0->2
+      {five36ths,     five36ths,     thirteen36ths},  // surf 4    0->3
+      {thirteen36ths, five36ths,     thirteen36ths},  // surf 5    1->3
+      {five36ths,     thirteen36ths, thirteen36ths}}; // surf 6    2->3
+
+    return intgLoc[ip][dim];
+  }
+};
+
 } // namespace cvfem
 
 #endif
