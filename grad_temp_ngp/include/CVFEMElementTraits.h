@@ -140,19 +140,71 @@ struct Tet4SCVElement
       * numScvIp;
   }
 
-
   // SCV element operations.
   KOKKOS_FUNCTION
-  static void compute_dndx(
+  static void dndx(
     const CoordinatesView& coordinates,
     const DndxView& dndx)
   {
-    // Tet4 implementation TBD.
+    // Shape functions of the linear tet in reference coordinates:
+    //   N0 = 1 - xi - eta - zeta,  N1 = xi,  N2 = eta,  N3 = zeta.
+    //
+    // The Jacobian is J = [e1 e2 e3] (edge vectors as columns), with
+    //   e_k = x_k - x_0.
+    // J and the reference-space derivatives are constant over the element, so
+    // grad(N_i) has the same value at every SCV integration point
+    // (ip_location). It is computed once and stored for each ip.
+    //
+    // The rows of inv(J) are (e2 x e3)/det, (e3 x e1)/det and (e1 x e2)/det,
+    // which are grad(N_1), grad(N_2) and grad(N_3). grad(N_0) follows from
+    // the partition of unity: sum_i grad(N_i) = 0.
+    double e[3][spatialDim];
+
+    for (int k = 0; k < 3; ++k) {
+      for (int dim = 0; dim < spatialDim; ++dim) {
+        e[k][dim] = coordinates(k + 1, dim) - coordinates(0, dim);
+      }
+    }
+
+    double grad[nodesPerElement][spatialDim];
+
+    for (int k = 0; k < 3; ++k) {
+      const double* a = e[(k + 1) % 3];
+      const double* b = e[(k + 2) % 3];
+
+      grad[k + 1][0] = a[1] * b[2] - a[2] * b[1];
+      grad[k + 1][1] = a[2] * b[0] - a[0] * b[2];
+      grad[k + 1][2] = a[0] * b[1] - a[1] * b[0];
+    }
+
+    // det(J) = e1 . (e2 x e3)
+    const double det =
+        e[0][0] * grad[1][0]
+      + e[0][1] * grad[1][1]
+      + e[0][2] * grad[1][2];
+
+    const double invDet = 1.0 / det;
+
+    for (int dim = 0; dim < spatialDim; ++dim) {
+
+      grad[1][dim] *= invDet;
+      grad[2][dim] *= invDet;
+      grad[3][dim] *= invDet;
+
+      grad[0][dim] = -(grad[1][dim] + grad[2][dim] + grad[3][dim]);
+    }
+
+    for (int ip = 0; ip < numScvIp; ++ip) {
+      for (int node = 0; node < nodesPerElement; ++node) {
+        for (int dim = 0; dim < spatialDim; ++dim) {
+          dndx(ip, node, dim) = grad[node][dim];
+        }
+      }
+    }
   }
 
-
   KOKKOS_FUNCTION
-  static void compute_scv_volume(
+  static void determinant(
     const CoordinatesView& coordinates,
     const ScvVolumeView& scvVolume)
   {

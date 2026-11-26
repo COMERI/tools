@@ -106,11 +106,11 @@ void compute_element_gradient(
       }
 
       // Compute element geometry.
-      Element::compute_dndx(coordinates,
-                            dndx);
+      Element::dndx(coordinates,
+                    dndx);
 
-      Element::compute_scv_volume(coordinates,
-                                  scvVolume);
+      Element::determinant(coordinates,
+                           scvVolume);
 
       // Accumulate the element contribution at each
       // SCV integration point.

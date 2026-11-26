@@ -119,3 +119,14 @@ add_test(
     NAME cvfem_nodal_volume
     COMMAND cvfem_nodal_volume_unit_test
 )
+
+add_cvfem_unit_test(cvfem_grad_temperature_unit_test
+    tests/ComputeGradTemperatureTest.cpp
+    src/ComputeNodalGradTemperatureAlg.cpp
+    src/ComputeNodalVolumeAlg.cpp
+)
+
+add_test(
+    NAME cvfem_grad_temperature
+    COMMAND cvfem_grad_temperature_unit_test
+)
