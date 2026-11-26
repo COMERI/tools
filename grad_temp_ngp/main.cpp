@@ -96,7 +96,7 @@ main(int argc, char** argv)
         stk::mesh::Field<double>& gradTemperature =
           metaData.declare_field<double>(
             stk::topology::NODE_RANK,
-            "grad_temperature");
+            "scv_grad_temperature");
 
         // and put it on the mesh
         stk::mesh::put_field_on_entire_mesh(
