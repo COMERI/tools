@@ -1,0 +1,23 @@
+  // Access fields on the device for nodal normalization.
+  auto gradTemperatureData =
+    gradTemperature_.data<stk::mesh::ReadWrite,
+                          DeviceSpace>();
+
+  auto dualNodalVolumeData =
+    dualNodalVolume_.data<stk::mesh::ReadOnly,
+                          DeviceSpace>();
+
+  stk::mesh::for_each_entity_run(ngpMesh,
+                                 stk::topology::NODE_RANK,
+                                 s_all_nodes,
+  KOKKOS_LAMBDA(const stk::mesh::FastMeshIndex& node)
+  {
+    auto grad = gradTemperatureData.entity_values(node);
+    auto volume = dualNodalVolumeData.entity_values(node);
+    
+    const double nodalVolume = volume(0_comp);
+    
+    for (int dim = 0; dim < nDim; ++dim) {
+      grad(stk::mesh::ComponentIdx(dim)) /= nodalVolume;
+    }
+  });

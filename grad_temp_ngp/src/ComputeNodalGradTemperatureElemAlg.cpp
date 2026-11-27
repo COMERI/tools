@@ -26,6 +26,7 @@ void compute_element_gradient(
   const TeamHandle& team,
   const stk::mesh::NgpMesh& ngpMesh,
   const auto& coordinatesData,
+  const auto& dualNodalVolumeData,
   const auto& temperatureData,
   auto& gradTemperatureData,
   const unsigned bucketId)
@@ -86,6 +87,9 @@ void compute_element_gradient(
             static_cast<int>(elem));
 
       // Gather element data.
+      double dualNodalVolume[
+        Element::nodesPerElement];
+
       double temperature[
         Element::nodesPerElement];
 
@@ -99,9 +103,12 @@ void compute_element_gradient(
             coord(stk::mesh::ComponentIdx(dim));
         }
         
+        auto dnv =
+          dualNodalVolumeData.entity_values(nodes[node]);
+        dualNodalVolume[node] = dnv(0_comp);
+
         auto temp =
           temperatureData.entity_values(nodes[node]);
-
         temperature[node] = temp(0_comp);
       }
 
@@ -117,8 +124,10 @@ void compute_element_gradient(
       double localGradient[Element::nodesPerElement][Element::spatialDim] = {};
 
       for (int ip = 0; ip < Element::numScvIp; ++ip) {
-        const int node = Element::ip_node(ip);
 
+        const int node = Element::ip_node(ip);
+        const double weight = scvVolume(ip) / dualNodalVolume[node];
+        
         for (int dim = 0; dim < Element::spatialDim; ++dim) {
           double gradient = 0.0;
           for (int j = 0; j < Element::nodesPerElement; ++j) {
@@ -127,7 +136,7 @@ void compute_element_gradient(
               dndx(ip, j, dim);
           }
           
-          localGradient[node][dim] += gradient * scvVolume(ip);
+          localGradient[node][dim] += gradient * weight;
         }
       }
 
@@ -203,30 +212,6 @@ ComputeNodalGradTemperatureElemAlg::execute()
   // Sum contributions across shared nodes using device execution space.
   stk::mesh::parallel_sum<DeviceSpace>(bulk_,
                                        {&gradTemperature_});
-
-  // Access fields on the device for nodal normalization.
-  auto gradTemperatureData =
-    gradTemperature_.data<stk::mesh::ReadWrite,
-                          DeviceSpace>();
-
-  auto dualNodalVolumeData =
-    dualNodalVolume_.data<stk::mesh::ReadOnly,
-                          DeviceSpace>();
-
-  stk::mesh::for_each_entity_run(ngpMesh,
-                                 stk::topology::NODE_RANK,
-                                 s_all_nodes,
-  KOKKOS_LAMBDA(const stk::mesh::FastMeshIndex& node)
-  {
-    auto grad = gradTemperatureData.entity_values(node);
-    auto volume = dualNodalVolumeData.entity_values(node);
-    
-    const double nodalVolume = volume(0_comp);
-    
-    for (int dim = 0; dim < nDim; ++dim) {
-      grad(stk::mesh::ComponentIdx(dim)) /= nodalVolume;
-    }
-  });
   
   // Computed field current in device memory; synchronize to host only for I/O.
 }
@@ -249,6 +234,11 @@ ComputeNodalGradTemperatureElemAlg::execute_element(
 
   auto temperatureData =
     temperature_.data<
+      stk::mesh::ReadOnly,
+      DeviceSpace>();
+  
+  auto dualNodalVolumeData =
+    dualNodalVolume_.data<
       stk::mesh::ReadOnly,
       DeviceSpace>();
 
@@ -292,6 +282,7 @@ ComputeNodalGradTemperatureElemAlg::execute_element(
         team,
         ngpMesh,
         coordinatesData,
+        dualNodalVolumeData,
         temperatureData,
         gradTemperatureData,
         bucketId);
