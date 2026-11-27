@@ -1,5 +1,5 @@
-#ifndef COMPUTE_NODAL_VOLUME_ALG_H
-#define COMPUTE_NODAL_VOLUME_ALG_H
+#ifndef COMPUTE_NODAL_GRAD_TEMPERATURE_ELEM_ALG_H
+#define COMPUTE_NODAL_GRAD_TEMPERATURE_ELEM_ALG_H
 
 #include "CVFEMElementTraits.h"
 
@@ -10,17 +10,19 @@
 
 #include <vector>
 
-class ComputeNodalVolumeAlg
+class ComputeNodalGradTemperatureElemAlg
 {
 public:
 
-  ComputeNodalVolumeAlg(
+  ComputeNodalGradTemperatureElemAlg(
     stk::mesh::BulkData& bulk,
     stk::mesh::Part* part,
     stk::mesh::Field<double>& coordinates,
+    stk::mesh::Field<double>& temperature,
+    stk::mesh::Field<double>& gradTemperature,
     stk::mesh::Field<double>& dualNodalVolume);
 
-  ~ComputeNodalVolumeAlg() = default;
+  ~ComputeNodalGradTemperatureElemAlg() = default;
 
   void execute();
 
@@ -43,6 +45,8 @@ private:
   // host-only algorithms.
 
   stk::mesh::Field<double>& coordinates_;
+  stk::mesh::Field<double>& temperature_;
+  stk::mesh::Field<double>& gradTemperature_;
   stk::mesh::Field<double>& dualNodalVolume_;
 };
 

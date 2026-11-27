@@ -1,5 +1,5 @@
-#include "ComputeNodalVolumeAlg.h"
-#include "ComputeNodalGradTemperatureAlg.h"
+#include "ComputeNodalVolumeElemAlg.h"
+#include "ComputeNodalGradTemperatureElemAlg.h"
 
 #include <Kokkos_Core.hpp>
 
@@ -156,25 +156,25 @@ main(int argc, char** argv)
           stk::topology::TETRAHEDRON_4);
 
       // Calculate dual nodal volumes.
-      ComputeNodalVolumeAlg dnvAlgorithm(
+      ComputeNodalVolumeElemAlg dnvElemAlgorithm(
         bulk,
         &tet4Part,
         *coordinates,
         dualNodalVolume);
-      dnvAlgorithm.execute();
+      dnvElemAlgorithm.execute();
 
       // Synchronize before host-side inspection.
       dualNodalVolume.sync_to_host();
 
       // Construct the nodal-gradient algorithm.
-      ComputeNodalGradTemperatureAlg gradAlgorithm(
+      ComputeNodalGradTemperatureElemAlg gradElemAlgorithm(
         bulk,
         &tet4Part,
         *coordinates,
         temperature,
         gradTemperature,
         dualNodalVolume);
-      gradAlgorithm.execute();
+      gradElemAlgorithm.execute();
 
       // Synchronize before host-side inspection.
       gradTemperature.sync_to_host();
