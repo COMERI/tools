@@ -110,6 +110,7 @@ endfunction()
 # Only provide the test source and the algorithm source files it needs.
 #
 
+# nodal volume
 add_cvfem_unit_test(cvfem_nodal_volume_unit_test
     tests/ComputeNodalVolumeElemTest.cpp
     src/ComputeNodalVolumeElemAlg.cpp
@@ -120,6 +121,7 @@ add_test(
     COMMAND cvfem_nodal_volume_unit_test
 )
 
+# nodal SCV gradTemp
 add_cvfem_unit_test(cvfem_grad_temperature_unit_test
     tests/ComputeGradTemperatureElemTest.cpp
     src/ComputeNodalGradTemperatureElemAlg.cpp
@@ -129,4 +131,16 @@ add_cvfem_unit_test(cvfem_grad_temperature_unit_test
 add_test(
     NAME cvfem_grad_temperature
     COMMAND cvfem_grad_temperature_unit_test
+)
+
+# nodal SCS gradTemp
+add_cvfem_unit_test(cvfem_grad_temperature_scs_unit_test
+    tests/ComputeGradTemperatureScsElemTest.cpp
+    src/ComputeNodalGradTemperatureScsElemAlg.cpp
+    src/ComputeNodalVolumeElemAlg.cpp
+)
+
+add_test(
+    NAME cvfem_grad_temperature_scs
+    COMMAND cvfem_grad_temperature_scs_unit_test
 )

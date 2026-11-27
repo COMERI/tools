@@ -37,10 +37,6 @@ main(int argc, char** argv)
     const int myRank =
       stk::parallel_machine_rank(comm);
 
-    // Analytical reference volume (pi is from my mesh, not precise pi).
-    const double pi = 3.1415900000000008;
-    const double analyticalVolume = (2.0*pi)*(2.0*pi)*(2.0*pi);
-
     // Read the mesh.
     std::string meshFile =
       std::string(CVFEM_SOURCE_DIR) + "/mesh/3d_tet4_taylor_green_0p4.exo";
