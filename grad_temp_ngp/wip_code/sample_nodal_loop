@@ -1,8 +1,54 @@
+void
+ComputeNodalGradTemperatureElemAlg::execute()
+{
+  stk::mesh::NgpMesh& ngpMesh =
+    stk::mesh::get_updated_ngp_mesh(bulk_);
+
+  stk::mesh::MetaData& metaData = bulk_.mesh_meta_data();
+  
+  const unsigned nDim = metaData.spatial_dimension();
+  
+  // Select locally owned elements belonging to all parts
+  // associated with this algorithm.
+  stk::mesh::Selector s_locally_owned_union =
+    metaData.locally_owned_part()
+    & stk::mesh::selectUnion(partVec_);
+
+  // Select all nodes on which gradTemperature is defined.
+  // Do not restrict this selector to locally owned nodes.
+  stk::mesh::Selector s_all_nodes =
+    stk::mesh::selectUnion(partVec_)
+    & stk::mesh::selectField(gradTemperature_);
+
+  // Initialize the output field on execution space
+  stk::mesh::field_fill<DeviceSpace>(
+    0.0,
+    gradTemperature_,
+    s_all_nodes);
+  
+  // Tet4 elements (add more topos if needed)
+  stk::mesh::Selector s_tet4 =
+    s_locally_owned_union
+    & metaData.get_topology_root_part(
+        stk::topology::TETRAHEDRON_4);
+
+  execute_element<cvfem::Tet4SCVElement>(s_tet4);
+
+  // Sum contributions across shared nodes using device execution space.
+  stk::mesh::parallel_sum<DeviceSpace>(bulk_,
+                                       {&gradTemperature_});
+
   // Access fields on the device for nodal normalization.
   auto gradTemperatureData =
     gradTemperature_.data<stk::mesh::ReadWrite,
                           DeviceSpace>();
 
+  // why not:
+  /*
+      auto& ngpGradTemperature =
+        stk::mesh::get_updated_ngp_field<double>(*gradTemperature_);
+  */
+  
   auto dualNodalVolumeData =
     dualNodalVolume_.data<stk::mesh::ReadOnly,
                           DeviceSpace>();
@@ -14,10 +60,14 @@
   {
     auto grad = gradTemperatureData.entity_values(node);
     auto volume = dualNodalVolumeData.entity_values(node);
-    
+    // why not: auto grad = ngpGradTemperature(node);
+
     const double nodalVolume = volume(0_comp);
     
     for (int dim = 0; dim < nDim; ++dim) {
       grad(stk::mesh::ComponentIdx(dim)) /= nodalVolume;
     }
   });
+  
+  // Computed field current in device memory; synchronize to host only for I/O.
+}
