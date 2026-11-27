@@ -34,6 +34,7 @@ struct Tet4SCSElement
       ScratchSpace,
       Kokkos::MemoryTraits<
         Kokkos::Unmanaged>>;
+
   // Shape-function derivatives: [SCS integration point][node][dimension]
   using DndxView =
     Kokkos::View<
