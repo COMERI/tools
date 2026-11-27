@@ -111,8 +111,8 @@ endfunction()
 #
 
 add_cvfem_unit_test(cvfem_nodal_volume_unit_test
-    tests/ComputeNodalVolumeTest.cpp
-    src/ComputeNodalVolumeAlg.cpp
+    tests/ComputeNodalVolumeElemTest.cpp
+    src/ComputeNodalVolumeElemAlg.cpp
 )
 
 add_test(
@@ -121,9 +121,9 @@ add_test(
 )
 
 add_cvfem_unit_test(cvfem_grad_temperature_unit_test
-    tests/ComputeGradTemperatureTest.cpp
-    src/ComputeNodalGradTemperatureAlg.cpp
-    src/ComputeNodalVolumeAlg.cpp
+    tests/ComputeGradTemperatureElemTest.cpp
+    src/ComputeNodalGradTemperatureElemAlg.cpp
+    src/ComputeNodalVolumeElemAlg.cpp
 )
 
 add_test(

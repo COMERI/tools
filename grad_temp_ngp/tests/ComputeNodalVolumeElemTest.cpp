@@ -1,5 +1,5 @@
 
-#include "ComputeNodalVolumeAlg.h"
+#include "ComputeNodalVolumeElemAlg.h"
 
 #include <Kokkos_Core.hpp>
 
@@ -86,13 +86,13 @@ main(int argc, char** argv)
           stk::topology::TETRAHEDRON_4);
 
       // Calculate dual nodal volumes.
-      ComputeNodalVolumeAlg dnvAlgorithm(
+      ComputeNodalVolumeElemAlg dnvElemAlgorithm(
         bulk,
         &tet4Part,
         *coordinates,
         dualNodalVolume);
 
-      dnvAlgorithm.execute();
+      dnvElemAlgorithm.execute();
 
       // Synchronize before host-side inspection.
       dualNodalVolume.sync_to_host();

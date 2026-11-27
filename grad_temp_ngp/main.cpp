@@ -1,5 +1,5 @@
-#include "ComputeNodalGradTemperatureAlg.h"
-#include "ComputeNodalVolumeAlg.h"
+#include "ComputeNodalGradTemperatureElemAlg.h"
+#include "ComputeNodalVolumeElemAlg.h"
 
 #include <Kokkos_Core.hpp>
 
@@ -176,18 +176,18 @@ main(int argc, char** argv)
            stk::topology::TETRAHEDRON_4);
 
 	// Construct the nodal-gradient algorithm.
-	ComputeNodalVolumeAlg dnvAlgorithm(
+	ComputeNodalVolumeElemAlg dnvElemAlgorithm(
           bulk,
 	  &tet4Part,
 	  *coordinates,
 	  dualNodalVolume);
 	
 	// Execute the CVFEM calculation.
-        // Alg owns zeroing of the fields.
-        dnvAlgorithm.execute();
+        // ElemAlg owns zeroing of the fields.
+        dnvElemAlgorithm.execute();
          
 	// Construct the nodal-gradient algorithm.
-	ComputeNodalGradTemperatureAlg gradAlgorithm(
+	ComputeNodalGradTemperatureElemAlg gradElemAlgorithm(
           bulk,
 	  &tet4Part,
 	  *coordinates,
@@ -196,8 +196,8 @@ main(int argc, char** argv)
 	  dualNodalVolume);
 	
 	// Execute the CVFEM calculation.
-        // Alg owns zeroing of the fields
-	gradAlgorithm.execute();
+        // ElemAlg owns zeroing of the fields
+	gradElemAlgorithm.execute();
 
         //=============================================
         // Sync all modified fields to prepare for output
