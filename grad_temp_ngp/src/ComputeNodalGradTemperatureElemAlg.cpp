@@ -87,7 +87,7 @@ void compute_element_gradient(
             static_cast<int>(elem));
 
       // Gather element data.
-      double dualNodalVolume[
+      double invDualNodalVolume[
         Element::nodesPerElement];
 
       double temperature[
@@ -105,7 +105,7 @@ void compute_element_gradient(
         
         auto dnv =
           dualNodalVolumeData.entity_values(nodes[node]);
-        dualNodalVolume[node] = dnv(0_comp);
+        invDualNodalVolume[node] = 1.0 / dnv(0_comp);
 
         auto temp =
           temperatureData.entity_values(nodes[node]);
@@ -126,7 +126,7 @@ void compute_element_gradient(
       for (int ip = 0; ip < Element::numScvIp; ++ip) {
 
         const int node = Element::ip_node(ip);
-        const double weight = scvVolume(ip) / dualNodalVolume[node];
+        const double weight = scvVolume(ip) * invDualNodalVolume[node];
         
         for (int dim = 0; dim < Element::spatialDim; ++dim) {
           double gradient = 0.0;
@@ -161,14 +161,14 @@ ComputeNodalGradTemperatureElemAlg(
   stk::mesh::BulkData& bulk,
   stk::mesh::Part* part,
   stk::mesh::Field<double>& coordinates,
+  stk::mesh::Field<double>& dualNodalVolume,
   stk::mesh::Field<double>& temperature,
-  stk::mesh::Field<double>& gradTemperature,
-  stk::mesh::Field<double>& dualNodalVolume)
+  stk::mesh::Field<double>& gradTemperature)
   : bulk_(bulk),
     coordinates_(coordinates),
+    dualNodalVolume_(dualNodalVolume),
     temperature_(temperature),
-    gradTemperature_(gradTemperature),
-    dualNodalVolume_(dualNodalVolume)
+    gradTemperature_(gradTemperature)
 {
   partVec_.push_back(part);
 }

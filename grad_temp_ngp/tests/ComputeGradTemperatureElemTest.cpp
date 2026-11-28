@@ -37,10 +37,6 @@ main(int argc, char** argv)
     const int myRank =
       stk::parallel_machine_rank(comm);
 
-    // Analytical reference volume (pi is from my mesh, not precise pi).
-    const double pi = 3.1415900000000008;
-    const double analyticalVolume = (2.0*pi)*(2.0*pi)*(2.0*pi);
-
     // Read the mesh.
     std::string meshFile =
       std::string(CVFEM_SOURCE_DIR) + "/mesh/3d_tet4_taylor_green_0p4.exo";
@@ -163,17 +159,14 @@ main(int argc, char** argv)
         dualNodalVolume);
       dnvElemAlgorithm.execute();
 
-      // Synchronize before host-side inspection.
-      dualNodalVolume.sync_to_host();
-
       // Construct the nodal-gradient algorithm.
       ComputeNodalGradTemperatureElemAlg gradElemAlgorithm(
         bulk,
         &tet4Part,
         *coordinates,
+        dualNodalVolume,
         temperature,
-        gradTemperature,
-        dualNodalVolume);
+        gradTemperature);
       gradElemAlgorithm.execute();
 
       // Synchronize before host-side inspection.
@@ -185,51 +178,55 @@ main(int argc, char** argv)
       // operation and does not benefit materially from
       // device-side execution.
       //=============================================
-               
-      double l_error = 0.0;
       
+      stk::mesh::Selector checkSelector =
+        metaData.locally_owned_part()
+        & stk::mesh::selectField(temperature);
+
       const stk::mesh::BucketVector& checkBuckets =
         bulk.get_buckets(stk::topology::NODE_RANK,
-                         nodeSelector);
+                         checkSelector);
 
-        auto gradTemperatureData =
-          gradTemperature.data<stk::mesh::ReadOnly,
-                               stk::ngp::HostSpace>();
-        
-        for (stk::mesh::Bucket* bucket : checkBuckets) {
+      auto gradTemperatureData =
+        gradTemperature.data<stk::mesh::ReadOnly,
+                             stk::ngp::HostSpace>();
+
+      double l_error = 0.0;
+      
+      for (stk::mesh::Bucket* bucket : checkBuckets) {
           
-          for (size_t i = 0; i < bucket->size(); ++i) {
-            
-            stk::mesh::Entity node = (*bucket)[i];
-
-            auto grad = gradTemperatureData.entity_values(node);
-            
-            double error = 0.0;
-            for (int dim = 0; dim < nDim; ++dim) {
-              error = std::max(error,
-                               std::abs(grad(stk::mesh::ComponentIdx(dim)) - ax[dim]));
-            }
-            
-            l_error = std::max(l_error, error);
+        for (size_t i = 0; i < bucket->size(); ++i) {
+          
+          stk::mesh::Entity node = (*bucket)[i];
+          
+          auto grad = gradTemperatureData.entity_values(node);
+          
+          double error = 0.0;
+          for (int dim = 0; dim < nDim; ++dim) {
+            error = std::max(error,
+                             std::abs(grad(stk::mesh::ComponentIdx(dim)) - ax[dim]));
           }
+          
+          l_error = std::max(l_error, error);
         }
-        
-        // Reduce the error across MPI ranks.
-        double g_error = 0.0;
-	stk::all_reduce_max(comm,
-			    &l_error,
-			    &g_error,
-			    1);
-
+      }
+      
+      // Reduce the error across MPI ranks.
+      double g_error = 0.0;
+      stk::all_reduce_max(comm,
+                          &l_error,
+                          &g_error,
+                          1);
+      
       // Compare against the analytical reference.
       const double tolerance = 1.0e-10;
-
+      
       const bool passed = g_error <= tolerance;
 
       if (myRank == 0) {
         std::cout << std::setprecision(12)
-                  << "\nDual nodal volume unit test\n"
-                  << "---------------------------\n"
+                  << "\nGradTempSCV unit test\n"
+                  << "-----------------------\n"
                   << "Absolute error:  " << g_error << "\n"
                   << "Tolerance:       " << tolerance << "\n"
                   << "Result:          "

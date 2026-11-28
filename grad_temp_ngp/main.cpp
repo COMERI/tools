@@ -1,4 +1,5 @@
 #include "ComputeNodalGradTemperatureElemAlg.h"
+#include "ComputeNodalGradTemperatureScsElemAlg.h"
 #include "ComputeNodalVolumeElemAlg.h"
 
 #include <Kokkos_Core.hpp>
@@ -103,7 +104,18 @@ main(int argc, char** argv)
           gradTemperature,
           metaData.spatial_dimension());
 
-        // Declare the nodal dual-nodal-gradient field.
+        // Declare the nodal temperature-gradient field.
+        stk::mesh::Field<double>& gradTemperatureScs =
+          metaData.declare_field<double>(
+            stk::topology::NODE_RANK,
+            "scs_grad_temperature");
+
+        // and put it on the mesh
+        stk::mesh::put_field_on_entire_mesh(
+          gradTemperatureScs,
+          metaData.spatial_dimension());
+
+        // Declare the nodal dual-nodal-volume field.
         stk::mesh::Field<double>& dualNodalVolume =
           metaData.declare_field<double>(
             stk::topology::NODE_RANK,
@@ -191,13 +203,26 @@ main(int argc, char** argv)
           bulk,
 	  &tet4Part,
 	  *coordinates,
+	  dualNodalVolume,
 	  temperature,
-	  gradTemperature,
-	  dualNodalVolume);
+	  gradTemperature);
 	
 	// Execute the CVFEM calculation.
         // ElemAlg owns zeroing of the fields
 	gradElemAlgorithm.execute();
+
+        // Construct the nodal-gradient algorithm.
+	ComputeNodalGradTemperatureScsElemAlg gradScsElemAlgorithm(
+          bulk,
+	  &tet4Part,
+	  *coordinates,
+	  dualNodalVolume,
+	  temperature,
+	  gradTemperatureScs);
+	
+	// Execute the CVFEM calculation.
+        // ElemAlg owns zeroing of the fields
+	gradScsElemAlgorithm.execute();
 
         //=============================================
         // Sync all modified fields to prepare for output
@@ -205,6 +230,7 @@ main(int argc, char** argv)
         temperature.sync_to_host();
         dualNodalVolume.sync_to_host();
         gradTemperature.sync_to_host();
+        gradTemperatureScs.sync_to_host();
         
 	// Write the results to an Exodus database.
 	const std::string outputFile =
@@ -223,6 +249,9 @@ main(int argc, char** argv)
 	
 	io.add_field(outputFileIndex,
 		     gradTemperature);	
+
+	io.add_field(outputFileIndex,
+		     gradTemperatureScs);	
 	
 	// Write the mesh and the initial field definitions.
 	io.write_output_mesh(outputFileIndex);

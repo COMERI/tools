@@ -18,9 +18,9 @@ public:
     stk::mesh::BulkData& bulk,
     stk::mesh::Part* part,
     stk::mesh::Field<double>& coordinates,
+    stk::mesh::Field<double>& dualNodalVolume,
     stk::mesh::Field<double>& temperature,
-    stk::mesh::Field<double>& gradTemperature,
-    stk::mesh::Field<double>& dualNodalVolume);
+    stk::mesh::Field<double>& gradTemperature);
 
   ~ComputeNodalGradTemperatureElemAlg() = default;
 
