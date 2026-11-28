@@ -52,6 +52,15 @@ struct Tet4SCVElement
       Kokkos::MemoryTraits<
         Kokkos::Unmanaged>>;
 
+  // Shape functions at the SCV integration points: [SCV integration point][node]
+  using ShapeFcnView =
+    Kokkos::View<
+      double**,
+      Kokkos::LayoutRight,
+      ScratchSpace,
+      Kokkos::MemoryTraits<
+        Kokkos::Unmanaged>>;
+
   // Scratch requirements are exposed independently.
   // An algorithm only allocates what it actually uses.
   static constexpr std::size_t
@@ -78,28 +87,15 @@ struct Tet4SCVElement
       * numScvIp;
   }
 
-  // SCV element operations.
-  KOKKOS_FUNCTION
-  static void grad_op(
-    const CoordinatesView& coordinates,
-    const DndxView& dndx)
+  static constexpr std::size_t
+  shape_fcn_scratch_size()
   {
-    // The gradients of the linear tet shape functions are constant over the
-    // element, so they are computed once and stored for each SCV
-    // integration point.
-    double grad[nodesPerElement][spatialDim];
-
-    detail::tet4_shape_function_gradients(coordinates, grad);
-
-    for (int ip = 0; ip < numScvIp; ++ip) {
-      for (int node = 0; node < nodesPerElement; ++node) {
-        for (int dim = 0; dim < spatialDim; ++dim) {
-          dndx(ip, node, dim) = grad[node][dim];
-        }
-      }
-    }
+    return sizeof(double)
+      * numScvIp
+      * nodesPerElement;
   }
 
+  // SCV element operations.
   KOKKOS_FUNCTION
   static void determinant(
     const CoordinatesView& coordinates,
@@ -170,6 +166,50 @@ struct Tet4SCVElement
       }
 
       scvVolume(ip) = detail::hex8_volume(hex);
+    }
+  }
+
+  KOKKOS_FUNCTION
+  static void grad_op(
+    const CoordinatesView& coordinates,
+    const DndxView& dndx)
+  {
+    // The gradients of the linear tet shape functions are constant over the
+    // element, so they are computed once and stored for each SCV
+    // integration point.
+    double grad[nodesPerElement][spatialDim];
+
+    detail::tet4_shape_function_gradients(coordinates, grad);
+
+    for (int ip = 0; ip < numScvIp; ++ip) {
+      for (int node = 0; node < nodesPerElement; ++node) {
+        for (int dim = 0; dim < spatialDim; ++dim) {
+          dndx(ip, node, dim) = grad[node][dim];
+        }
+      }
+    }
+  }
+
+  // Shape functions evaluated at the SCV integration points (ip_location).
+  // They depend only on the reference location and not on the element
+  // coordinates, so the values are the same for every element.
+  KOKKOS_FUNCTION
+  static void shape_fcn(
+    const ShapeFcnView& shapeFcn)
+  {
+    for (int ip = 0; ip < numScvIp; ++ip) {
+
+      double shape[nodesPerElement];
+
+      detail::tet4_shape_functions(
+        ip_location(ip, 0),
+        ip_location(ip, 1),
+        ip_location(ip, 2),
+        shape);
+
+      for (int node = 0; node < nodesPerElement; ++node) {
+        shapeFcn(ip, node) = shape[node];
+      }
     }
   }
 
