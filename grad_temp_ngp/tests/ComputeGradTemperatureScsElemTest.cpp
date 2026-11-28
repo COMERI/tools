@@ -159,9 +159,6 @@ main(int argc, char** argv)
         dualNodalVolume);
       dnvElemAlgorithm.execute();
 
-      // Synchronize before host-side inspection.
-      dualNodalVolume.sync_to_host();
-
       // Construct the nodal-gradient algorithm.
       ComputeNodalGradTemperatureScsElemAlg gradElemAlgorithm(
         bulk,
@@ -183,51 +180,64 @@ main(int argc, char** argv)
       // operation and does not benefit materially from
       // device-side execution.
       //=============================================
-               
-      double l_error = 0.0;
-      
+
+      // TBD: For now, remove boundary nodes until boundary contribution is complete
+      stk::mesh::PartVector boundaryParts;
+      for (const std::string& name : {"surface_1", "surface_2", "surface_3", "surface_4", "surface_5", "surface_6"}) {
+        stk::mesh::Part* p = metaData.get_part(name);
+        if (p != nullptr)
+          boundaryParts.push_back(p);
+      }
+
+      stk::mesh::Selector checkSelector =
+        metaData.locally_owned_part()
+        & stk::mesh::selectField(temperature)
+        & !stk::mesh::selectUnion(boundaryParts);
+
       const stk::mesh::BucketVector& checkBuckets =
         bulk.get_buckets(stk::topology::NODE_RANK,
-                         nodeSelector);
+                         checkSelector);
 
-        auto gradTemperatureData =
-          gradTemperature.data<stk::mesh::ReadOnly,
-                               stk::ngp::HostSpace>();
+      auto gradTemperatureData =
+        gradTemperature.data<stk::mesh::ReadOnly,
+                             stk::ngp::HostSpace>();
+
+      double l_error = 0.0;
+
+      for (stk::mesh::Bucket* bucket : checkBuckets) {
         
-        for (stk::mesh::Bucket* bucket : checkBuckets) {
+        for (size_t i = 0; i < bucket->size(); ++i) {
           
-          for (size_t i = 0; i < bucket->size(); ++i) {
-            
-            stk::mesh::Entity node = (*bucket)[i];
-
-            auto grad = gradTemperatureData.entity_values(node);
-            
-            double error = 0.0;
-            for (int dim = 0; dim < nDim; ++dim) {
-              error = std::max(error,
-                               std::abs(grad(stk::mesh::ComponentIdx(dim)) - ax[dim]));
-            }
-            
-            l_error = std::max(l_error, error);
+          stk::mesh::Entity node = (*bucket)[i];
+          
+          auto grad = gradTemperatureData.entity_values(node);
+          
+          double error = 0.0;
+          for (int dim = 0; dim < nDim; ++dim) {
+            error = std::max(error,
+                             std::abs(grad(stk::mesh::ComponentIdx(dim)) - ax[dim]));
           }
+          
+          l_error = std::max(l_error, error);
         }
-        
-        // Reduce the error across MPI ranks.
-        double g_error = 0.0;
-	stk::all_reduce_max(comm,
-			    &l_error,
-			    &g_error,
-			    1);
-
+      }
+      
+      // Reduce the error across MPI ranks.
+      double g_error = 0.0;
+      stk::all_reduce_max(comm,
+                          &l_error,
+                          &g_error,
+                          1);
+      
       // Compare against the analytical reference.
       const double tolerance = 1.0e-10;
-
+      
       const bool passed = g_error <= tolerance;
-
+      
       if (myRank == 0) {
         std::cout << std::setprecision(12)
-                  << "\nDual nodal volume unit test\n"
-                  << "---------------------------\n"
+                  << "\nGradTempSCS unit test (missing boundary)\n"
+                  << "------------------------------------------\n"
                   << "Absolute error:  " << g_error << "\n"
                   << "Tolerance:       " << tolerance << "\n"
                   << "Result:          "

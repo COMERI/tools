@@ -157,6 +157,21 @@ void tet4_shape_function_gradients(
   }
 }
 
+// Shape functions of the linear tet at the reference point (xi, eta, zeta):
+//   N0 = 1 - xi - eta - zeta,  N1 = xi,  N2 = eta,  N3 = zeta.
+KOKKOS_INLINE_FUNCTION
+void tet4_shape_functions(
+  const double xi,
+  const double eta,
+  const double zeta,
+  double shape[4])
+{
+  shape[0] = 1.0 - xi - eta - zeta;
+  shape[1] = xi;
+  shape[2] = eta;
+  shape[3] = zeta;
+}
+
 } // namespace detail
 
 } // namespace cvfem

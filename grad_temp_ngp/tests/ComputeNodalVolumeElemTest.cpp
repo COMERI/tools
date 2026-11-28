@@ -100,21 +100,21 @@ main(int argc, char** argv)
       // Sum the dual nodal volumes on the host.
       double spdTotalVolume = 0.0;
       
-      stk::mesh::Selector nodeSelector =
-        metaData.universal_part()
+      stk::mesh::Selector checkSelector =
+        metaData.locally_owned_part()
         & stk::mesh::selectField(dualNodalVolume);
 
-      const stk::mesh::BucketVector& nodeBuckets =
+      const stk::mesh::BucketVector& checkBuckets =
         bulk.get_buckets(
           stk::topology::NODE_RANK,
-          nodeSelector);
+          checkSelector);
 
       auto dualNodalVolumeData =
         dualNodalVolume.data<
           stk::mesh::ReadOnly,
           stk::ngp::HostSpace>();
 
-      for (stk::mesh::Bucket* bucket : nodeBuckets) {
+      for (stk::mesh::Bucket* bucket : checkBuckets) {
         for (size_t i = 0; i < bucket->size(); ++i) {
           stk::mesh::Entity node = (*bucket)[i];
 

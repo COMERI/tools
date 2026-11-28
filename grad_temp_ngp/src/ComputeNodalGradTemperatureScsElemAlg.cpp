@@ -43,11 +43,15 @@ void compute_element_gradient(
   const std::size_t areaVecBytes =
     Element::area_vec_scratch_size();
 
+  const std::size_t shapeFcnBytes =
+    Element::shape_fcn_scratch_size();
+
   double* ptr =
     static_cast<double*>(
       team.thread_scratch(0).get_shmem(
         coordinatesBytes +
-        areaVecBytes));
+        areaVecBytes +
+        shapeFcnBytes));
 
   // Map scratch memory to the element data structures.
   typename Element::CoordinatesView coordinates(
@@ -64,6 +68,15 @@ void compute_element_gradient(
   
   ptr += areaVecBytes / sizeof(double);
 
+  typename Element::ShapeFcnView shapeFcn(
+    ptr,
+    Element::numScsIp,
+    Element::nodesPerElement);
+
+  // The shape functions at the SCS integration points do not depend on the
+  // element, so they are filled once per thread.
+  Element::shape_fcn(shapeFcn);
+  
   Kokkos::parallel_for(
     Kokkos::TeamThreadRange(team, 0_entity, numElements),
     [&](const stk::mesh::EntityIdx elem)
@@ -78,7 +91,7 @@ void compute_element_gradient(
             static_cast<int>(elem));
 
       // Gather element data.
-      double dualNodalVolume[
+      double invDualNodalVolume[
         Element::nodesPerElement];
 
       double temperature[
@@ -96,7 +109,7 @@ void compute_element_gradient(
         
         auto dnv =
           dualNodalVolumeData.entity_values(nodes[node]);
-        dualNodalVolume[node] = dnv(0_comp);
+        invDualNodalVolume[node] = 1.0 / dnv(0_comp);
 
         auto temp =
           temperatureData.entity_values(nodes[node]);
@@ -110,27 +123,25 @@ void compute_element_gradient(
       // Accumulate the element contribution at each
       // SCS integration point.
       double localGradient[Element::nodesPerElement][Element::spatialDim] = {};
-
-      // HACK placement
-      double shpfc[Element::numScsIp][Element::nodesPerElement];
-      
+  
       for (int ip = 0; ip < Element::numScsIp; ++ip) {
 
         // left/right nodes
-        const int iL = Element::lrscv(ip,0);
-        const int iR = Element::lrscv(ip,1);
-
-        const double weightL = 1.0 / dualNodalVolume[iL];
-        const double weightR = 1.0 / dualNodalVolume[iR];
+        const int nodeL = Element::lrscv(ip,0);
+        const int nodeR = Element::lrscv(ip,1);
+        
+        const double weightL = invDualNodalVolume[nodeL];
+        const double weightR = invDualNodalVolume[nodeR];
         
         double tScsIp = 0.0;
         for (int  ic = 0; ic < Element::nodesPerElement; ++ic) {
-          tScsIp += temperature[ic]*shpfc[ip][ic];//(ip,ic);
+          tScsIp += temperature[ic] * shapeFcn(ip,ic);
         }
-
+ 
         for (int dim = 0; dim < Element::spatialDim; ++dim) {
-          localGradient[iL][dim] += tScsIp * areaVec(ip,dim) * weightL;
-          localGradient[iR][dim] -= tScsIp * areaVec(ip,dim) * weightR;
+          const double tScsIpAreaVec = tScsIp * areaVec(ip,dim); 
+          localGradient[nodeL][dim] += tScsIpAreaVec * weightL;
+          localGradient[nodeR][dim] -= tScsIpAreaVec * weightR;
         }
       }
 
@@ -138,7 +149,7 @@ void compute_element_gradient(
       // nodal gradient field.
       for (int node = 0; node < Element::nodesPerElement; ++node) {
         auto grad = gradTemperatureData.entity_values(nodes[node]);
-
+        
         for (int dim = 0; dim < Element::spatialDim; ++dim) {
           Kokkos::atomic_add(&grad(stk::mesh::ComponentIdx(dim)),
                              localGradient[node][dim]);
@@ -146,7 +157,7 @@ void compute_element_gradient(
       }
     });
 }
-
+  
 } // namespace
 
 
@@ -254,7 +265,8 @@ ComputeNodalGradTemperatureScsElemAlg::execute_element(
   // Allocate only the scratch required by this algorithm.
   const std::size_t scratchBytes =
     Element::coordinates_scratch_size()
-    + Element::area_vec_scratch_size();
+    + Element::area_vec_scratch_size()
+    + Element::shape_fcn_scratch_size();
 
   // One team corresponds to one bucket.
   Kokkos::parallel_for(
